@@ -1,0 +1,20 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: c++17
+IndentWidth: 4
+ColumnLimit: 120
+AccessModifierOffset: -4
+NamespaceIndentation: None
+FixNamespaceComments: false
+PointerAlignment: Left
+# Guard clauses such as `if (!value) return E_POINTER;` stay on one line.
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: All
+AllowShortBlocksOnASingleLine: Empty
+AllowShortLambdasOnASingleLine: All
+# Header order matters here (windows.h before WinRT headers, #undef GetCurrentTime).
+SortIncludes: Never
+IncludeBlocks: Preserve
+MaxEmptyLinesToKeep: 1

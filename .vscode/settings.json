@@ -1,0 +1,12 @@
+{
+  "clangd.arguments": [
+    "--compile-commands-dir=build/macos-x86",
+    "--clang-tidy",
+    "--header-insertion=never"
+  ],
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "[cpp]": {
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+    "editor.formatOnSave": true
+  }
+}

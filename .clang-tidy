@@ -1,0 +1,34 @@
+---
+# Bug-finding checks plus a readability subset. Disabled checks conflict with
+# COM/WinRT conventions used throughout (fixed ABI signatures with unnamed or
+# unused parameters, `boolean` out-params, guard clauses without braces, WRL
+# macros emitting access specifiers, intentional reinterpret_casts in hooks).
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-reserved-identifier,
+  performance-*,
+  readability-*,
+  -readability-avoid-unconditional-preprocessor-if,
+  -readability-braces-around-statements,
+  -readability-convert-member-functions-to-static,
+  -readability-function-cognitive-complexity,
+  -readability-identifier-length,
+  -readability-identifier-naming,
+  -readability-implicit-bool-conversion,
+  -readability-isolate-declaration,
+  -readability-magic-numbers,
+  -readability-math-missing-parentheses,
+  -readability-named-parameter,
+  -readability-redundant-access-specifiers,
+  -readability-uppercase-literal-suffix,
+  modernize-use-nullptr,
+  modernize-use-override,
+  modernize-use-equals-default,
+  modernize-redundant-void-arg,
+  misc-redundant-expression,
+  misc-misplaced-const
+HeaderFilterRegex: '.*/(shim|tests|proxy)/.*'
+ExcludeHeaderFilterRegex: '.*/shim/generated/.*'
+WarningsAsErrors: ''
