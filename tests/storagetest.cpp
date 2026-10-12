@@ -19,8 +19,48 @@ void FreeArrayResult(ABI::Windows::Foundation::IPropertyValue* value, void* byte
         return;
     CoTaskMemFree(bytes);
 }
+std::string ReadAll(const std::wstring& path) {
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                              nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return {};
+    std::string text(GetFileSize(file, nullptr), 0);
+    DWORD read{};
+    if (!ReadFile(file, text.data(), static_cast<DWORD>(text.size()), &read, nullptr)) read = 0;
+    CloseHandle(file);
+    text.resize(read);
+    return text;
+}
+// Appends raw journal text for a store before the shim loads it.
+bool AppendJournal(const wchar_t* store, const char* records) {
+    wchar_t root[MAX_PATH]{};
+    if (!GetEnvironmentVariableW(L"LOCALAPPDATA", root, MAX_PATH)) return false;
+    std::wstring directory = std::wstring(root) + L"\\ctr2";
+    CreateDirectoryW(directory.c_str(), nullptr);
+    CreateDirectoryW((directory + L"\\" + store).c_str(), nullptr);
+    std::wstring journal = directory + L"\\" + store + L"\\settings.json.journal";
+    HANDLE file = CreateFileW(journal.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ, nullptr, OPEN_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    DWORD written{}, size = static_cast<DWORD>(strlen(records));
+    const bool ok = WriteFile(file, records, size, &written, nullptr) && written == size;
+    CloseHandle(file);
+    return ok;
+}
 int main(int argc, char** argv) {
     RoInitialize(RO_INIT_MULTITHREADED);
+    const bool torn = argc > 1 && !strcmp(argv[1], "torn");
+    // A crash can cut the last journal record short. Loading keeps the
+    // complete records before it and drops the partial one.
+    if (torn && !AppendJournal(L"Local", "{\"key\":\"__ctr2shim_test_torn\",\"type\":\"String\",\"value\":\"ok\"}\n"
+                                         "{\"key\":\"__ctr2shim_te"))
+        return 61;
+    // The store keeps its journal open after its first change, so the atomic
+    // test seeds its key through the journal and locks it before any change.
+    if (argc > 1 && !strcmp(argv[1], "atomic")) {
+        for (const auto* store : {L"Local", L"Roaming"})
+            if (!AppendJournal(store, "{\"key\":\"__ctr2shim_test_atomic\",\"type\":\"Boolean\",\"value\":\"true\"}\n"))
+                return 62;
+    }
     auto* dll = LoadLibraryW(L"ctr2shim.dll");
     if (!dll) return 1;
     auto get = reinterpret_cast<HRESULT(WINAPI*)(HSTRING, IActivationFactory**)>(GetProcAddress(dll, "ShimGetFactory"));
@@ -93,16 +133,64 @@ int main(int argc, char** argv) {
             });
         EventRegistrationToken token{};
         if (FAILED(observable->add_MapChanged(handler.Get(), &token))) return 31;
+        const std::wstring settingsFile =
+            text.substr(0, text.size() - 5) + (roaming ? L"Roaming" : L"Local") + L"\\settings.json";
+        if (torn) {
+            if (!roaming) {
+                ComPtr<IInspectable> value;
+                ComPtr<ABI::Windows::Foundation::IPropertyValue> property;
+                HString restoredText;
+                if (FAILED(map->Lookup(HStringReference(L"__ctr2shim_test_torn").Get(), &value)) ||
+                    FAILED(value.As(&property)) || FAILED(property->GetString(restoredText.GetAddressOf())) ||
+                    wcscmp(restoredText.GetRawBuffer(nullptr), L"ok") != 0)
+                    return 63;
+                if (!ReadAll(settingsFile + L".journal").empty()) return 64; // Replayed, then compacted.
+                if (FAILED(map->Remove(HStringReference(L"__ctr2shim_test_torn").Get()))) return 65;
+            }
+            if (FAILED(observable->remove_MapChanged(token))) return 66;
+            continue;
+        }
+        if (argc > 1 && !strcmp(argv[1], "burst")) {
+            // Saving progress writes each of the game's prefs from its render
+            // thread. A change appends to the journal; it must not rewrite
+            // settings.json, whose size grows with every stored key.
+            const auto snapshot = ReadAll(settingsFile);
+            const auto start = GetTickCount64();
+            constexpr int count = 300;
+            for (int i = 0; i < count; ++i) {
+                std::wstring key = L"__ctr2shim_test_burst_" + std::to_wstring(i);
+                ComPtr<IInspectable> value;
+                props->CreateInt64(i, &value);
+                boolean replaced{};
+                if (FAILED(map->Insert(HStringReference(key.c_str()).Get(), value.Get(), &replaced))) return 50;
+            }
+            printf("burst: %d inserts in %llu ms\n", count, GetTickCount64() - start);
+            if (ReadAll(settingsFile) != snapshot) return 51;
+            if (ReadAll(settingsFile + L".journal").empty()) return 52;
+            for (int i = 0; i < count; ++i) {
+                std::wstring key = L"__ctr2shim_test_burst_" + std::to_wstring(i);
+                ComPtr<IInspectable> value;
+                ComPtr<ABI::Windows::Foundation::IPropertyValue> property;
+                INT64 number{};
+                if (FAILED(map->Lookup(HStringReference(key.c_str()).Get(), &value)) || FAILED(value.As(&property)) ||
+                    FAILED(property->GetInt64(&number)) || number != i)
+                    return 53;
+                if (FAILED(map->Remove(HStringReference(key.c_str()).Get()))) return 54;
+            }
+            if (FAILED(observable->remove_MapChanged(token))) return 55;
+            continue;
+        }
         if (argc > 1 && !strcmp(argv[1], "atomic")) {
             HStringReference key(L"__ctr2shim_test_atomic"), newKey(L"__ctr2shim_test_atomic_new");
             ComPtr<IInspectable> original, replacement;
             props->CreateBoolean(true, &original);
             props->CreateBoolean(false, &replacement);
-            boolean replaced{};
-            if (FAILED(map->Insert(key.Get(), original.Get(), &replaced))) return 35;
-            std::wstring settings =
-                text.substr(0, text.size() - 5) + (roaming ? L"Roaming" : L"Local") + L"\\settings.json";
-            HANDLE locked = CreateFileW(settings.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+            boolean replaced{}, seeded{};
+            // Loaded from the seeded journal, which loading then compacted away.
+            if (FAILED(map->HasKey(key.Get(), &seeded)) || !seeded) return 35;
+            // A change that cannot be journaled fails and leaves memory unchanged.
+            const std::wstring journal = settingsFile + L".journal";
+            HANDLE locked = CreateFileW(journal.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_ALWAYS,
                                         FILE_ATTRIBUTE_NORMAL, nullptr);
             if (locked == INVALID_HANDLE_VALUE) return 36;
             struct CloseLocked {

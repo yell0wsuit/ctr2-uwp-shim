@@ -137,17 +137,20 @@ public:
         }
         return false;
     }
+    // One typed record; field order is deliberately fixed by the writer.
+    bool Record(Entry& entry) {
+        std::wstring field;
+        return Take('{') && String(field) && field == L"key" && Take(':') && String(entry.key) && Take(',') &&
+               String(field) && field == L"type" && Take(':') && String(entry.type) && Take(',') && String(field) &&
+               field == L"value" && Take(':') && String(entry.value) && Take('}');
+    }
     bool Entries(std::vector<Entry>& entries) {
-        // The document is an array of typed records; field order is deliberately fixed by the writer.
+        // The document is an array of records.
         if (!Take('[')) return false;
         if (Take(']')) return End();
         do {
             Entry entry;
-            std::wstring field;
-            if (!Take('{') || !String(field) || field != L"key" || !Take(':') || !String(entry.key) || !Take(',') ||
-                !String(field) || field != L"type" || !Take(':') || !String(entry.type) || !Take(',') ||
-                !String(field) || field != L"value" || !Take(':') || !String(entry.value) || !Take('}'))
-                return false;
+            if (!Record(entry)) return false;
             entries.push_back(std::move(entry));
         } while (Take(','));
         return Take(']') && End();
@@ -346,16 +349,140 @@ HRESULT WriteAtomic(const std::wstring& path, const std::string& text) {
     if (FAILED(hr)) DeleteFileW(temporary.c_str());
     return hr;
 }
+std::string RecordText(const Entry& entry) {
+    return "{\"key\":" + Quote(entry.key) + ",\"type\":" + Quote(entry.type) + ",\"value\":" + Quote(entry.value) + "}";
 }
+// Journal record types beside the value types: removing one key, and clearing.
+constexpr wchar_t RemoveRecord[] = L"Remove";
+constexpr wchar_t ClearRecord[] = L"Clear";
+HRESULT Seek(HANDLE file, size_t offset) {
+    LARGE_INTEGER position{};
+    position.QuadPart = static_cast<LONGLONG>(offset);
+    return SetFilePointerEx(file, position, nullptr, FILE_BEGIN) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
+}
+}
+// settings.json holds a snapshot; settings.json.journal holds one record per
+// change since then. Writing the whole snapshot for every change made a game
+// save (one Insert per pref, about 1,200 of them) stall its render thread for
+// seconds, so changes append to the journal, which is replayed on load and
+// folded into the snapshot (compacted) on load and once it grows large.
 class SettingsPersistence final {
     friend class PersistentPropertySet;
-    std::wstring path_;
+    static constexpr size_t CompactBytes = 1024 * 1024;
+    std::wstring path_, journal_;
+    // Opened on the first change and kept open: reopening per record cost
+    // most of each Insert. Sharing is read-only, so no other writer interleaves.
+    Handle journalFile_{INVALID_HANDLE_VALUE};
+    size_t journalBytes_ = 0; // Length of the journal's complete, valid records.
     ComPtr<Map> map_;
     std::mutex mutex_;
 
 public:
-    explicit SettingsPersistence(std::wstring path) : path_(std::move(path)) {}
+    explicit SettingsPersistence(std::wstring path) : path_(std::move(path)), journal_(path_ + L".journal") {}
     HRESULT Initialize(IPropertySet* values) {
+        auto hr = LoadSnapshot(values);
+        if (FAILED(hr)) return hr;
+        std::string text;
+        hr = ReadFileText(journal_, text);
+        if (FAILED(hr)) return hr;
+        if (hr == S_FALSE || text.empty()) return S_OK;
+        hr = Replay(text);
+        if (FAILED(hr)) return hr;
+        // Fold the journal into the snapshot. If that fails the journal stays,
+        // and replaying it again on the next load gives the same result.
+        hr = Compact();
+        if (FAILED(hr)) Log("FAIL", "settings compaction failed hr=%08lx", hr);
+        return S_OK;
+    }
+    // Appends without flushing: the record reaches the OS file cache before the
+    // change is visible, so it survives the process crashing or being killed.
+    HRESULT Append(const Entry& entry) {
+        if (journalFile_.value == INVALID_HANDLE_VALUE) {
+            journalFile_.value = CreateFileW(journal_.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, OPEN_ALWAYS,
+                                             FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (journalFile_.value == INVALID_HANDLE_VALUE) return HRESULT_FROM_WIN32(GetLastError());
+            // Drop anything after the valid records (a torn or malformed tail
+            // left by a failed compaction) so new records stay readable.
+            auto hr = Seek(journalFile_.value, journalBytes_);
+            if (SUCCEEDED(hr) && !SetEndOfFile(journalFile_.value)) hr = HRESULT_FROM_WIN32(GetLastError());
+            if (FAILED(hr)) {
+                journalFile_.Close();
+                return hr;
+            }
+        }
+        auto text = RecordText(entry) + "\n";
+        DWORD written{};
+        if (!WriteFile(journalFile_.value, text.data(), static_cast<DWORD>(text.size()), &written, nullptr) ||
+            written != text.size()) {
+            auto hr = HRESULT_FROM_WIN32(GetLastError() ? GetLastError() : ERROR_WRITE_FAULT);
+            // Cut a partial record off so later records remain readable.
+            if (FAILED(Seek(journalFile_.value, journalBytes_)) || !SetEndOfFile(journalFile_.value))
+                journalFile_.Close();
+            return hr;
+        }
+        journalBytes_ += text.size();
+        return S_OK;
+    }
+    // Call after the change is applied to map_; the journal already holds it.
+    void CompactIfLarge() {
+        if (journalBytes_ < CompactBytes) return;
+        auto hr = Compact();
+        if (FAILED(hr)) Log("FAIL", "settings compaction failed hr=%08lx", hr);
+    }
+
+private:
+    HRESULT Replay(const std::string& text) {
+        ComPtr<IPropertyValueStatics> props;
+        auto hr =
+            RoGetActivationFactory(HStringReference(L"Windows.Foundation.PropertyValue").Get(), IID_PPV_ARGS(&props));
+        if (FAILED(hr)) return hr;
+        // Each record ends with a newline. A crash can leave the last record
+        // without one; it was never applied, so it is dropped.
+        size_t start = 0, applied = 0;
+        for (auto end = text.find('\n'); end != std::string::npos; start = end + 1, end = text.find('\n', start)) {
+            std::string line = text.substr(start, end - start);
+            Entry entry;
+            Reader reader(line);
+            if (!reader.Record(entry) || !reader.End()) {
+                Log("FAIL", "settings journal record %zu is malformed; ignoring the rest", applied);
+                journalBytes_ = start;
+                return S_OK;
+            }
+            HString key;
+            hr = key.Set(entry.key.data(), static_cast<UINT32>(entry.key.size()));
+            if (FAILED(hr)) return hr;
+            if (entry.type == RemoveRecord) {
+                boolean found{};
+                if (SUCCEEDED(map_->HasKey(key.Get(), &found)) && found) hr = map_->Remove(key.Get());
+            } else if (entry.type == ClearRecord) {
+                hr = map_->Clear();
+            } else {
+                ComPtr<IInspectable> value;
+                hr = Decode(props.Get(), entry, &value);
+                boolean replaced{};
+                if (SUCCEEDED(hr)) hr = map_->Insert(key.Get(), value.Get(), &replaced);
+            }
+            if (FAILED(hr)) return hr;
+            ++applied;
+        }
+        if (start < text.size()) Log("TRACE", "settings journal: dropped an incomplete last record");
+        journalBytes_ = start;
+        return S_OK;
+    }
+    HRESULT Compact() {
+        const auto started = GetTickCount64();
+        std::string text;
+        auto hr = Serialize(text);
+        if (SUCCEEDED(hr)) hr = WriteAtomic(path_, text);
+        if (FAILED(hr)) return hr;
+        journalFile_.Close();
+        if (!DeleteFileW(journal_.c_str()) && GetLastError() != ERROR_FILE_NOT_FOUND)
+            return HRESULT_FROM_WIN32(GetLastError());
+        Log("TRACE", "settings compacted %zu journal bytes in %llu ms", journalBytes_, GetTickCount64() - started);
+        journalBytes_ = 0;
+        return S_OK;
+    }
+    HRESULT LoadSnapshot(IPropertySet* values) {
         auto hr = values->QueryInterface(IID_PPV_ARGS(&map_));
         if (FAILED(hr)) return hr;
         std::string text;
@@ -387,45 +514,14 @@ public:
         }
         return S_OK;
     }
-    HRESULT Candidate(ComPtr<Map>& result, bool copy = true) {
-        ComPtr<IInspectable> object;
-        auto hr = RoActivateInstance(HStringReference(L"Windows.Foundation.Collections.PropertySet").Get(), &object);
-        if (FAILED(hr)) return hr;
-        hr = object.As(&result);
-        if (FAILED(hr) || !copy) return hr;
+    HRESULT Serialize(std::string& text) {
         ComPtr<IIterable<Pair*>> iterable;
-        hr = map_.As(&iterable);
+        auto hr = map_.As(&iterable);
         if (FAILED(hr)) return hr;
         ComPtr<IIterator<Pair*>> iterator;
         hr = iterable->First(&iterator);
         if (FAILED(hr)) return hr;
-        boolean has{};
-        hr = iterator->get_HasCurrent(&has);
-        while (SUCCEEDED(hr) && has) {
-            ComPtr<Pair> pair;
-            hr = iterator->get_Current(&pair);
-            if (FAILED(hr)) return hr;
-            HString key;
-            hr = pair->get_Key(key.GetAddressOf());
-            if (FAILED(hr)) return hr;
-            ComPtr<IInspectable> value;
-            hr = pair->get_Value(&value);
-            if (FAILED(hr)) return hr;
-            boolean replaced{};
-            hr = result->Insert(key.Get(), value.Get(), &replaced);
-            if (FAILED(hr)) return hr;
-            hr = iterator->MoveNext(&has);
-        }
-        return hr;
-    }
-    HRESULT Save(Map* candidate) {
-        ComPtr<IIterable<Pair*>> iterable;
-        auto hr = candidate->QueryInterface(IID_PPV_ARGS(&iterable));
-        if (FAILED(hr)) return hr;
-        ComPtr<IIterator<Pair*>> iterator;
-        hr = iterable->First(&iterator);
-        if (FAILED(hr)) return hr;
-        std::string text = "[";
+        text = "[";
         boolean has{};
         hr = iterator->get_HasCurrent(&has);
         bool first = true;
@@ -445,14 +541,12 @@ public:
             if (FAILED(hr)) return hr;
             if (!first) text += ',';
             first = false;
-            text += "\n{\"key\":" + Quote(entry.key) + ",\"type\":" + Quote(entry.type) +
-                    ",\"value\":" + Quote(entry.value) + "}";
+            text += "\n" + RecordText(entry);
             hr = iterator->MoveNext(&has);
         }
         if (FAILED(hr)) return hr;
         text += "\n]\n";
-        if (text.size() > 16 * 1024 * 1024) return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
-        return WriteAtomic(path_, text);
+        return text.size() > 16 * 1024 * 1024 ? HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE) : S_OK;
     }
 };
 namespace {
@@ -539,21 +633,18 @@ public:
             Entry entry;
             auto hr = Encode(value, entry);
             if (FAILED(hr)) return hr;
+            entry.key = String(key);
             {
+                // Journal first: a change that cannot be recorded is not applied.
                 std::lock_guard<std::mutex> lock(state_->mutex_);
-                ComPtr<Map> candidate;
-                hr = state_->Candidate(candidate);
-                if (FAILED(hr)) return hr;
-                boolean candidateReplaced{};
-                hr = candidate->Insert(key, value, &candidateReplaced);
-                if (FAILED(hr)) return hr;
-                hr = state_->Save(candidate.Get());
+                hr = state_->Append(entry);
                 if (FAILED(hr)) {
                     Log("FAIL", "settings save failed hr=%08lx", hr);
                     return hr;
                 }
-                state_->map_ = std::move(candidate);
-                *replaced = candidateReplaced;
+                hr = state_->map_->Insert(key, value, replaced);
+                if (FAILED(hr)) return hr;
+                state_->CompactIfLarge();
             }
             return Notify(*replaced ? CollectionChange_ItemChanged : CollectionChange_ItemInserted, key);
         });
@@ -562,17 +653,18 @@ public:
         return Guard([&]() -> HRESULT {
             {
                 std::lock_guard<std::mutex> lock(state_->mutex_);
-                ComPtr<Map> candidate;
-                auto hr = state_->Candidate(candidate);
+                boolean found{};
+                auto hr = state_->map_->HasKey(key, &found);
                 if (FAILED(hr)) return hr;
-                hr = candidate->Remove(key);
-                if (FAILED(hr)) return hr;
-                hr = state_->Save(candidate.Get());
+                if (!found) return state_->map_->Remove(key); // The backing map's error for a missing key.
+                hr = state_->Append({String(key), RemoveRecord, {}});
                 if (FAILED(hr)) {
                     Log("FAIL", "settings save failed hr=%08lx", hr);
                     return hr;
                 }
-                state_->map_ = std::move(candidate);
+                hr = state_->map_->Remove(key);
+                if (FAILED(hr)) return hr;
+                state_->CompactIfLarge();
             }
             return Notify(CollectionChange_ItemRemoved, key);
         });
@@ -581,15 +673,14 @@ public:
         return Guard([&]() -> HRESULT {
             {
                 std::lock_guard<std::mutex> lock(state_->mutex_);
-                ComPtr<Map> candidate;
-                auto hr = state_->Candidate(candidate, false);
-                if (FAILED(hr)) return hr;
-                hr = state_->Save(candidate.Get());
+                auto hr = state_->Append({{}, ClearRecord, {}});
                 if (FAILED(hr)) {
                     Log("FAIL", "settings save failed hr=%08lx", hr);
                     return hr;
                 }
-                state_->map_ = std::move(candidate);
+                hr = state_->map_->Clear();
+                if (FAILED(hr)) return hr;
+                state_->CompactIfLarge();
             }
             return Notify(CollectionChange_Reset, nullptr);
         });

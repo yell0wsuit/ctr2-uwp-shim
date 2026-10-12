@@ -370,7 +370,7 @@ public:
         if (FAILED(hr)) return hr;
         if (!page) return E_UNEXPECTED;
         Entry next;
-        next.page = page;
+        next.page = std::move(page);
         next.parameter = parameter;
         next.typeName.Set(type.Name);
         next.typeKind = type.Kind;
