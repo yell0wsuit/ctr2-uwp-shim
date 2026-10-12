@@ -25,9 +25,7 @@ You can use the prebuilt DLLs without compiling the shim.
 
 3. Under **Assets** on the [latest release](https://github.com/yell0wsuit/ctr2-uwp-shim/releases/latest), download the shim ZIP, for example `ctr2-uwp-shim-v2026.10.12-x86.zip`. Extract both `ctr2shim.dll` and `d3dcompiler_47.dll` beside `Game.exe`. The source code archives do not contain built DLLs. To build them yourself, see the [building guide](docs/building.md#windows).
 
-4. In `Assets\assets\maps`, rename `%21_MapSelectController.xml` to `!_MapSelectController.xml` and `%21_MasterGameDesignDocument.xml` to `!_MasterGameDesignDocument.xml` if present. Raw `.appx` extraction leaves these names percent-encoded; the setup script below decodes them automatically.
-
-5. Double-click `Game.exe` to play. Close the game before updating the shim, then replace both shim DLLs with the ones from the same release.
+4. Double-click `Game.exe` to play. Close the game before updating the shim, then replace both shim DLLs with the ones from the same release.
 
 ### Optional: prepare a separate game folder
 
@@ -79,7 +77,7 @@ Window settings are stored in `Local/window.ini` inside your save folder. Close 
 ## Troubleshooting
 
 - **Setup reports a missing file:** check that the source folder contains `Game.exe`, `Assets`, and all three x86 runtime DLLs listed above. The folder passed as `-BuildDirectory` must contain both extracted shim DLLs.
-- **The game crashes after loading:** check the asset names in step 4, or use the setup script to decode them automatically.
+- **The game fails to start or crashes after loading:** the shim automatically repairs the two `%21` map filenames in `Assets\assets\maps`. Make sure the game folder is writable, or use the setup script to decode the filenames in a separate game folder.
 - **Need a log:** open PowerShell in the game folder and run `.\Game.exe --log`. The log is written to `ctr2shim.log` beside `Game.exe`. Use `--trace` for detailed call logging or `--diagnostics` for crash details; both also enable logging. With a copy of the repository and Python 3, you can also run `python scripts/play.py --game "C:\Games\CutTheRope2UWP" --log` from the repository root.
 
 Run `python scripts/play.py --help` for all launcher options.  

@@ -1,4 +1,5 @@
 #include "host.h"
+#include "assets.h"
 #include "pointer.h"
 #include "placement.h"
 #include "gpu/dxgi_redirect.h"
@@ -197,6 +198,15 @@ static HICON LoadGameIcon(int width, int height) {
 HRESULT RunHost(const std::function<HRESULT()>& initialize) {
     InitializeDiagnostics();
     if (window) return E_ILLEGAL_METHOD_CALL;
+    wchar_t executable[32768]{};
+    const DWORD length = GetModuleFileNameW(nullptr, executable, ARRAYSIZE(executable));
+    if (!length) return HRESULT_FROM_WIN32(GetLastError());
+    if (length >= ARRAYSIZE(executable)) return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+    const auto repair = RepairAssetNames(std::filesystem::path(executable).parent_path());
+    if (FAILED(repair)) {
+        Log("FAIL", "cannot repair encoded map filenames hr=%08lx; decode them manually or check folder permissions", repair);
+        return repair;
+    }
     thread = GetCurrentThreadId();
     WNDCLASSW cls{};
     cls.lpfnWndProc = WindowProc;
