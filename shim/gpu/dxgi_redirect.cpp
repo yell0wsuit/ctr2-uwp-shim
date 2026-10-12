@@ -1,4 +1,5 @@
 #include "dxgi_redirect.h"
+#include "frame_pacing.h"
 #include "host/host.h"
 #include "log.h"
 #include "options.h"
@@ -29,6 +30,8 @@ struct PresentHooks {
 // Private data marking swap chains CreateForHost redirected, and their stored matrix.
 static const GUID redirectedTag = {0xa891e43b, 0x7e18, 0x4e38, {0xaa, 0xaa, 0xd7, 0x1b, 0x50, 0x0c, 0x67, 0x5f}};
 static const GUID matrixTag = {0xff0dfd5b, 0x2cb8, 0x420c, {0xb1, 0xa0, 0xa4, 0x67, 0x28, 0x6b, 0x3f, 0x86}};
+// When a redirected swap chain's next present is due; see PacePresent.
+static const GUID paceTag = {0x3e8a52c4, 0x91d7, 0x4b0f, {0x8c, 0x26, 0x5f, 0xa1, 0x7b, 0x03, 0xe9, 0x44}};
 static std::mutex presentMutex;
 // NOLINTNEXTLINE(bugprone-throwing-static-initialization): allocation failure at DLL load is fatal anyway.
 static std::map<void**, PresentHooks> presentHooks;
@@ -89,6 +92,51 @@ static void CaptureFrame(IDXGISwapChain* swap) {
     fwrite(pixels.data(), pixels.size(), 1, file);
     fclose(file);
 }
+static bool Redirected(IUnknown* swap) {
+    ComPtr<IDXGIObject> object;
+    BOOL tag = FALSE;
+    UINT size = sizeof(tag);
+    return SUCCEEDED(swap->QueryInterface(IID_PPV_ARGS(&object))) &&
+           SUCCEEDED(object->GetPrivateData(redirectedTag, &size, &tag)) && size == sizeof(tag) && tag;
+}
+// Sleeps until QueryPerformanceCounter reaches `deadline`. Timers can wake
+// late, so sleep until a millisecond before it and spin the rest.
+static void WaitUntil(LONGLONG deadline, LONGLONG frequency) {
+    thread_local HANDLE timer = [] {
+        // CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, from Windows 10 1803.
+        HANDLE created = CreateWaitableTimerExW(nullptr, nullptr, 0x2, TIMER_ALL_ACCESS);
+        return created ? created : CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
+    }();
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    const LONGLONG sleep = (deadline - now.QuadPart) * 10000000 / frequency - 10000; // 100 ns units
+    if (timer && sleep > 0) {
+        LARGE_INTEGER due;
+        due.QuadPart = -sleep;
+        if (SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) WaitForSingleObject(timer, INFINITE);
+    }
+    do {
+        YieldProcessor();
+        QueryPerformanceCounter(&now);
+    } while (now.QuadPart < deadline);
+}
+// Holds each game present to its 60 Hz slot; see PaceFrame.
+static void PacePresent(IDXGISwapChain* swap, UINT flags) {
+    if ((flags & DXGI_PRESENT_TEST) || !Redirected(swap)) return;
+    static const LONGLONG frequency = [] {
+        LARGE_INTEGER value;
+        QueryPerformanceFrequency(&value);
+        return value.QuadPart;
+    }();
+    LONGLONG next = 0;
+    UINT size = sizeof(next);
+    if (FAILED(swap->GetPrivateData(paceTag, &size, &next)) || size != sizeof(next)) next = 0;
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    const LONGLONG wait = PaceFrame(now.QuadPart, frequency / 60, next);
+    swap->SetPrivateData(paceTag, sizeof(next), &next);
+    if (wait > 0) WaitUntil(now.QuadPart + wait, frequency);
+}
 static HRESULT STDMETHODCALLTYPE Present(IDXGISwapChain* swap, UINT sync, UINT flags) {
     PresentCall call;
     {
@@ -96,6 +144,7 @@ static HRESULT STDMETHODCALLTYPE Present(IDXGISwapChain* swap, UINT sync, UINT f
         call = presentHooks.at(*reinterpret_cast<void***>(swap)).present;
     }
     if (!(flags & DXGI_PRESENT_TEST)) CaptureFrame(swap);
+    PacePresent(swap, flags);
     return call(swap, sync, flags);
 }
 static HRESULT STDMETHODCALLTYPE Present1(IDXGISwapChain1* swap, UINT sync, UINT flags,
@@ -106,14 +155,8 @@ static HRESULT STDMETHODCALLTYPE Present1(IDXGISwapChain1* swap, UINT sync, UINT
         call = presentHooks.at(*reinterpret_cast<void***>(swap)).present1;
     }
     if (!(flags & DXGI_PRESENT_TEST)) CaptureFrame(swap);
+    PacePresent(swap, flags);
     return call(swap, sync, flags, params);
-}
-static bool Redirected(IUnknown* swap) {
-    ComPtr<IDXGIObject> object;
-    BOOL tag = FALSE;
-    UINT size = sizeof(tag);
-    return SUCCEEDED(swap->QueryInterface(IID_PPV_ARGS(&object))) &&
-           SUCCEEDED(object->GetPrivateData(redirectedTag, &size, &tag)) && size == sizeof(tag) && tag;
 }
 // ANGLE's SwapChainPanel path scales composition swap chains via
 // IDXGISwapChain2::SetMatrixTransform and fails surface creation on error.
