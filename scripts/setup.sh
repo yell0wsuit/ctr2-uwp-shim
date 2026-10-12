@@ -32,7 +32,7 @@ done
 # The installer decodes them, and the game opens the decoded names; missing design
 # XML leaves the game without its candy definition and crashes it after loading.
 python3 - "$destination/Assets" <<'DECODE_NAMES'
-import os, sys, urllib.parse
+import os, shutil, sys, urllib.parse
 for parent, directories, files in os.walk(sys.argv[1], topdown=False):
     for name in files + directories:
         decoded = urllib.parse.unquote(name)
@@ -40,7 +40,13 @@ for parent, directories, files in os.walk(sys.argv[1], topdown=False):
             continue
         if '/' in decoded or '\0' in decoded:
             sys.exit(f'Cannot decode asset name: {os.path.join(parent, name)}')
-        os.replace(os.path.join(parent, name), os.path.join(parent, decoded))
+        encoded, target = os.path.join(parent, name), os.path.join(parent, decoded)
+        # Re-staging copies the encoded directory again beside the decoded one.
+        if os.path.isdir(encoded) and os.path.isdir(target):
+            shutil.copytree(encoded, target, dirs_exist_ok=True)
+            shutil.rmtree(encoded)
+        else:
+            os.replace(encoded, target)
 DECODE_NAMES
 # Settings template, copied once so later edits survive re-staging.
 [[ -f "$destination/ctr2shim.ini" ]] || cp "$root/scripts/ctr2shim.ini" "$destination/"
