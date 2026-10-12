@@ -54,7 +54,14 @@ static HRESULT WINAPI Activate(HSTRING name, IInspectable** out) noexcept {
     LogActivation(name, __uuidof(IInspectable), hr);
     return hr;
 }
+// Wine 11's RoRegisterForApartmentShutdown hands out a dummy cookie and never
+// calls back, but RoUnregisterForApartmentShutdown is an aborting stub, so
+// vccorlib's unregistration crashed every normal exit. Nothing to undo there.
+static HRESULT WINAPI UnregisterForApartmentShutdown(APARTMENT_SHUTDOWN_REGISTRATION_COOKIE) noexcept {
+    return S_OK;
+}
 static void PatchModule(HMODULE module) noexcept {
+    static const bool wine = GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version") != nullptr;
     if (!module) return;
     auto* base = reinterpret_cast<BYTE*>(module);
     auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
@@ -76,6 +83,8 @@ static void PatchModule(HMODULE module) noexcept {
                 hook = reinterpret_cast<void*>(&GetFactory);
             if (strcmp(reinterpret_cast<char*>(symbol->Name), "RoActivateInstance") == 0)
                 hook = reinterpret_cast<void*>(&Activate);
+            if (wine && strcmp(reinterpret_cast<char*>(symbol->Name), "RoUnregisterForApartmentShutdown") == 0)
+                hook = reinterpret_cast<void*>(&UnregisterForApartmentShutdown);
             if (!hook) continue;
             DWORD old;
             if (!VirtualProtect(&slots->u1.Function, sizeof(DWORD), PAGE_READWRITE, &old)) continue;
