@@ -1,6 +1,6 @@
 # ctr2-uwp-shim
 
-A DLL shim that allows the Windows 8.1 Store version of **Cut the Rope 2** as a desktop game. The shim supplies the Windows Runtime features the game needs through two DLLs placed beside the game's `Game.exe`. The original executable stays unchanged.
+A DLL shim that lets you run the Windows 8.1 Store version of **Cut the Rope 2** as a desktop game. The shim supplies the Windows Runtime features the game needs through two DLLs placed beside the game's `Game.exe`. The original executable stays unchanged.
 
 Windows supports gameplay, saves, resizable windows, and borderless fullscreen. Wine support is **experimental** and may have bugs.
 
@@ -12,17 +12,20 @@ The game and Microsoft runtime files are not included in this repo.
 
 You can use the prebuilt DLLs without compiling the shim.
 
-1. Extract Cut the Rope 2 UWP package into a folder such as `C:\Games\CutTheRope2UWP`.
+1. Obtain the Windows 8.1 Store package for **Cut the Rope 2**. See the game's [Microsoft Store listing](https://apps.microsoft.com/detail/9nblggh0j0dc).
 
-   The game is available from Microsoft Store version at <https://apps.microsoft.com/detail/9nblggh0j0dc>.
+   Use this package bundle:
 
-   An `.appx` / `.appxbundle` is a ZIP archive, you can rename it to `.zip` before extracting.
+   - File: `ZeptoLabUKLimited.CuttheRope2_2016.609.1118.0_neutral_~_sq9zxnwrk84pj.appxbundle`
+   - SHA-1: `28c559f34f2ed365f4b0ce3350031c6eb6056104`
+
+   Open the `.appxbundle` as a ZIP archive and extract `Game_1.0.0.46_Win32.appx`, the **x86** game package inside it. Then open that `.appx` as a ZIP archive and extract its contents into a folder such as `C:\Games\CutTheRope2UWP`. You can rename either archive to `.zip` if your extractor requires it. The resulting game folder should contain `Game.exe` and `Assets`.
 
 2. Download [`vclibs_redist_packages.zip`](https://download.microsoft.com/download/5/f/0/5f0f8404-9329-44a9-8176-ed6f7f746f25/vclibs_redist_packages.zip) and extract `Microsoft.VCLibs.120.00_12.0.21005.1_x86__8wekyb3d8bbwe.appx`. Then copy these files beside `Game.exe`: `msvcr120_app.dll`, `msvcp120_app.dll`, and `vccorlib120_app.dll`. Keep the game's `Assets` folder and other extracted files together.
 
-3. Under **Assets** on the [latest release](https://github.com/yell0wsuit/ctr2-uwp-shim/releases/latest), download `ctr2-uwp-shim-vYEAR.MONTH.DAY-x86.zip` (the version may also have a suffix such as `-1`). Extract both `ctr2shim.dll` and `d3dcompiler_47.dll` beside `Game.exe`. The source code archives do not contain built DLLs. To build them yourself, see the [building guide](docs/building.md#windows).
+3. Under **Assets** on the [latest release](https://github.com/yell0wsuit/ctr2-uwp-shim/releases/latest), download the shim ZIP, for example `ctr2-uwp-shim-v2026.10.12-x86.zip`. Extract both `ctr2shim.dll` and `d3dcompiler_47.dll` beside `Game.exe`. The source code archives do not contain built DLLs. To build them yourself, see the [building guide](docs/building.md#windows).
 
-4. Check for percent-encoded asset names left by raw `.appx` extraction. In `Assets\Maps`, rename `%21_MasterGameDesignDocument.xml` to `!_MasterGameDesignDocument.xml` if present. Decode any other percent-encoded asset names too; the setup script below does this automatically.
+4. In `Assets\assets\maps`, rename `%21_MapSelectController.xml` to `!_MapSelectController.xml` and `%21_MasterGameDesignDocument.xml` to `!_MasterGameDesignDocument.xml` if present. Raw `.appx` extraction leaves these names percent-encoded; the setup script below decodes them automatically.
 
 5. Double-click `Game.exe` to play. Close the game before updating the shim, then replace both shim DLLs with the ones from the same release.
 
@@ -53,7 +56,12 @@ The launcher defaults to Wine Devel in `~/Applications` and stores its Wine pref
 
 ## Saves and window settings
 
-Saves go to `SaveData` beside `Game.exe`. To change the location, edit `SaveLocation` under `[storage]` in `ctr2shim.ini` beside the game:
+Saves go to `SaveData` beside `Game.exe`. To change the location, create or edit `ctr2shim.ini` beside `Game.exe` and set `SaveLocation` under `[storage]`:
+
+```ini
+[storage]
+SaveLocation=game
+```
 
 | Value | Save folder |
 | --- | --- |
@@ -70,9 +78,9 @@ Window settings are stored in `Local/window.ini` inside your save folder. Close 
 
 ## Troubleshooting
 
-- **Setup reports a missing file:** check that the source folder contains `Game.exe`, `Assets`, and all three x86 runtime DLLs listed above.
-- **The game crashes after loading:** rerun setup to ensure asset names are decoded. Or rename the game's map file from `%21` to `!` (exclamation mark) in `Assets\Maps` if you extracted the game from an `.appx`.
-- **Need a log:** run `python scripts/play.py --log`. The log is written to `ctr2shim.log` beside `Game.exe`. Use `--trace` for detailed call logging or `--diagnostics` for crash details; both also enable logging.
+- **Setup reports a missing file:** check that the source folder contains `Game.exe`, `Assets`, and all three x86 runtime DLLs listed above. The folder passed as `-BuildDirectory` must contain both extracted shim DLLs.
+- **The game crashes after loading:** check the asset names in step 4, or use the setup script to decode them automatically.
+- **Need a log:** open PowerShell in the game folder and run `.\Game.exe --log`. The log is written to `ctr2shim.log` beside `Game.exe`. Use `--trace` for detailed call logging or `--diagnostics` for crash details; both also enable logging. With a copy of the repository and Python 3, you can also run `python scripts/play.py --game "C:\Games\CutTheRope2UWP" --log` from the repository root.
 
 Run `python scripts/play.py --help` for all launcher options.  
 See the [building guide](docs/building.md) for compilation, tests, and code generation.
