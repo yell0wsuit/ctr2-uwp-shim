@@ -13,6 +13,7 @@ class WindowPlacement {
     bool changing_ = false, activated_ = false;
     void Save();
     void FitMonitor();
+    SIZE FrameSize() const;
 
 public:
     void Initialize(HWND window);

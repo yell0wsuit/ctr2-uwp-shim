@@ -51,19 +51,27 @@ int wmain(int argc, wchar_t** argv) {
     auto local = std::filesystem::path(root) / L"Local";
     std::filesystem::create_directories(local);
     auto file = local / L"window.ini";
-    if (action == L"invalid") {
-        const wchar_t* record = mode == L"offscreen"      ? L"50000,50000,640,480,0"
-                                : mode == L"overflow"     ? L"2147483647,0,2147483647,480,1"
-                                : mode == L"legacy"       ? L"1,80,90,720,570,0,0"
-                                : mode == L"invalidstate" ? L"80,90,640,480,3"
-                                : mode == L"invalidsize"  ? L"80,90,0,480,0"
-                                                          : L"80,90,640,480,0,trailing";
-        CHECK(WritePrivateProfileStringW(L"window", L"Placement", record, file.c_str()));
-    }
-    if (action == L"manual") {
-        wchar_t record[80]{};
-        swprintf_s(record, L"80,90,640,480,%d", full ? 2 : maximized ? 1 : 0);
-        CHECK(WritePrivateProfileStringW(L"window", L"Placement", record, file.c_str()));
+    if (action == L"invalid" || action == L"manual") {
+        // Start fresh so earlier runs cannot leave valid keys in invalid fixtures.
+        std::filesystem::remove(file);
+        if (mode == L"legacy") {
+            CHECK(WritePrivateProfileStringW(L"window", L"Placement", L"80,90,640,480,0", file.c_str()));
+        } else {
+            CHECK(WritePrivateProfileStringW(L"window", L"X", mode == L"offscreen" ? L"50000" : L"80", file.c_str()));
+            CHECK(WritePrivateProfileStringW(L"window", L"Y", mode == L"offscreen" ? L"50000" : L"90", file.c_str()));
+            const wchar_t* width = mode == L"overflow"      ? L"2147483647"
+                                   : mode == L"invalidsize" ? L"0"
+                                   : mode == L"corrupt"     ? L"640,trailing"
+                                                            : L"640";
+            CHECK(WritePrivateProfileStringW(L"window", L"Width", width, file.c_str()));
+            CHECK(WritePrivateProfileStringW(L"window", L"Height", L"480", file.c_str()));
+            CHECK(WritePrivateProfileStringW(L"window", L"State",
+                                             mode == L"invalidstate" ? L"3"
+                                             : full                  ? L"2"
+                                             : maximized             ? L"1"
+                                                                     : L"0",
+                                             file.c_str()));
+        }
     }
     RoInitialize(RO_INIT_MULTITHREADED);
     auto* dll = LoadLibraryW(L"ctr2shim.dll");
@@ -103,7 +111,10 @@ int wmain(int argc, wchar_t** argv) {
                 ShowWindow(host, SW_RESTORE);
                 WINDOWPLACEMENT placement{sizeof(WINDOWPLACEMENT)};
                 GetWindowPlacement(host, &placement);
-                placement.rcNormalPosition = {80, 90, 720, 570};
+                RECT outer{0, 0, 640, 480};
+                CHECK(AdjustWindowRectEx(&outer, static_cast<DWORD>(GetWindowLongPtrW(host, GWL_STYLE)), FALSE,
+                                         static_cast<DWORD>(GetWindowLongPtrW(host, GWL_EXSTYLE))));
+                placement.rcNormalPosition = {80, 90, 80 + outer.right - outer.left, 90 + outer.bottom - outer.top};
                 placement.showCmd = SW_SHOWNORMAL;
                 placement.flags = 0;
                 CHECK(SetWindowPlacement(host, &placement));
@@ -136,8 +147,12 @@ int wmain(int argc, wchar_t** argv) {
                 CHECK((IsZoomed(host) != FALSE) == (maximized && !full));
                 WINDOWPLACEMENT placement{sizeof(WINDOWPLACEMENT)};
                 CHECK(GetWindowPlacement(host, &placement));
-                CHECK(placement.rcNormalPosition.right - placement.rcNormalPosition.left == 640);
-                CHECK(placement.rcNormalPosition.bottom - placement.rcNormalPosition.top == 480);
+                const bool wasMaximized = IsZoomed(host) != FALSE;
+                ShowWindow(host, SW_RESTORE);
+                RECT client{};
+                CHECK(GetClientRect(host, &client));
+                CHECK(client.right == 640 && client.bottom == 480);
+                if (wasMaximized) ShowWindow(host, SW_MAXIMIZE);
                 CHECK(placement.rcNormalPosition.left == 80 && placement.rcNormalPosition.top == 90);
                 // Alt+Enter toggles both ways; autorepeat does not toggle again.
                 SendMessageW(host, WM_SYSKEYDOWN, VK_RETURN, 1L << 29);
@@ -166,12 +181,11 @@ int wmain(int argc, wchar_t** argv) {
         });
     CHECK(SUCCEEDED(statics->Start(callback.Get())));
     CHECK(std::filesystem::exists(file));
-    wchar_t record[256]{};
-    GetPrivateProfileStringW(L"window", L"Placement", L"", record, ARRAYSIZE(record), file.c_str());
-    LONG x = 0, y = 0, width = 0, height = 0;
-    int state = 0;
-    wchar_t extra{};
-    CHECK(swscanf_s(record, L"%ld,%ld,%ld,%ld,%d %lc", &x, &y, &width, &height, &state, &extra, 1u) == 5);
+    const auto read = [&](const wchar_t* key) {
+        return static_cast<LONG>(GetPrivateProfileIntW(L"window", key, -1, file.c_str()));
+    };
+    const LONG x = read(L"X"), y = read(L"Y"), width = read(L"Width"), height = read(L"Height");
+    const LONG state = read(L"State");
     CHECK(width > 0 && height > 0 && state >= 0 && state <= 2);
     if (action == L"write") {
         CHECK(x == 80 && y == 90 && width == 640 && height == 480);
