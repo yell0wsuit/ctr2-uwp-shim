@@ -28,6 +28,20 @@ for name in Game.exe msvcr120_app.dll msvcp120_app.dll vccorlib120_app.dll App.x
   [[ ! -f "$source_dir/$name" ]] || cp -p "$source_dir/$name" "$destination/"
 done
 [[ -d "$source_dir/Assets" ]] && cp -R "$source_dir/Assets" "$destination/"
+# A raw .appx extraction keeps OPC percent-encoded names (%21_MasterGameDesignDocument.xml).
+# The installer decodes them, and the game opens the decoded names; missing design
+# XML leaves the game without its candy definition and crashes it after loading.
+python3 - "$destination/Assets" <<'DECODE_NAMES'
+import os, sys, urllib.parse
+for parent, directories, files in os.walk(sys.argv[1], topdown=False):
+    for name in files + directories:
+        decoded = urllib.parse.unquote(name)
+        if decoded == name:
+            continue
+        if '/' in decoded or '\0' in decoded:
+            sys.exit(f'Cannot decode asset name: {os.path.join(parent, name)}')
+        os.replace(os.path.join(parent, name), os.path.join(parent, decoded))
+DECODE_NAMES
 python3 - "$build" "$destination" <<'COPY_SHIMS'
 import os, pathlib, shutil, sys, tempfile
 build, destination = map(pathlib.Path, sys.argv[1:])

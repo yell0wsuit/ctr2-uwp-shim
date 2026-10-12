@@ -60,7 +60,8 @@ function Copy-AtomicDll([string]$Source, [string]$Target) {
     try {
         [IO.File]::Copy($Source, $temporary, $false)
         if ([IO.File]::Exists($Target)) {
-            [IO.File]::Replace($temporary, $Target, $null)
+            # [NullString]: PowerShell turns $null into "" for string arguments.
+            [IO.File]::Replace($temporary, $Target, [NullString]::Value)
         } else {
             [IO.File]::Move($temporary, $Target)
         }
@@ -102,6 +103,15 @@ $assetsDestination = Join-Path $destinationPath 'Assets'
 [IO.Directory]::CreateDirectory($assetsDestination) | Out-Null
 foreach ($item in Get-ChildItem -LiteralPath (Join-Path $source 'Assets') -Force) {
     Copy-Item -LiteralPath $item.FullName -Destination $assetsDestination -Recurse -Force
+}
+# A raw .appx extraction keeps OPC percent-encoded names (%21_MasterGameDesignDocument.xml).
+# The installer decodes them, and the game opens the decoded names; missing design
+# XML leaves the game without its candy definition and crashes it after loading.
+$encoded = Get-ChildItem -LiteralPath $assetsDestination -Recurse -Force | Where-Object { $_.Name -match '%[0-9A-Fa-f]{2}' }
+foreach ($item in $encoded | Sort-Object { $_.FullName.Length } -Descending) {
+    $decoded = [Uri]::UnescapeDataString($item.Name)
+    if ($decoded.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) { throw "Cannot decode asset name: $($item.FullName)" }
+    Move-Item -LiteralPath $item.FullName -Destination (Join-Path ([IO.Path]::GetDirectoryName($item.FullName)) $decoded) -Force
 }
 foreach ($name in @('ctr2shim.dll', 'd3dcompiler_47.dll')) {
     Copy-AtomicDll (Join-Path $build $name) (Join-Path $destinationPath $name)
