@@ -1,6 +1,6 @@
 LIBRARY ctr2shim
 EXPORTS
   ShimGetFactory=_ShimGetFactory@8
-  DllGetActivationFactory=_DllGetActivationFactory@8
-  DllCanUnloadNow=_DllCanUnloadNow@0
+  DllGetActivationFactory=_DllGetActivationFactory@8 PRIVATE
+  DllCanUnloadNow=_DllCanUnloadNow@0 PRIVATE
   ShimBootstrap
