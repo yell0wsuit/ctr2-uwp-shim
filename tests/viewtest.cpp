@@ -32,9 +32,9 @@ int main() {
         return 5;
     ApplicationViewOrientation orientation{};
     if (FAILED(view->get_Orientation(&orientation)) || orientation != ApplicationViewOrientation_Landscape) return 6;
-    boolean fullscreen = true;
+    boolean fullscreen = false;
 #pragma warning(suppress : 4996)
-    if (FAILED(view->get_IsFullScreen(&fullscreen)) || fullscreen) return 7;
+    if (FAILED(view->get_IsFullScreen(&fullscreen)) || !fullscreen) return 7;
     ComPtr<IApplicationView2> view2;
     if (FAILED(view.As(&view2))) return 8;
     ABI::Windows::Foundation::Rect bounds{};

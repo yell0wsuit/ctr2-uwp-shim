@@ -45,18 +45,12 @@ public:
     HRESULT STDMETHODCALLTYPE get_AdjacentToRightDisplayEdge(boolean* v) override {
         return get_AdjacentToLeftDisplayEdge(v);
     }
+    // Windows 8.1 meaning: the view is not snapped. The host window is the
+    // app's whole display at any size, matching get_Value's FullScreen state.
+    // The game shows "Switch to fullscreen mode" while this is false.
     HRESULT STDMETHODCALLTYPE get_IsFullScreen(boolean* v) override {
         if (!v) return E_POINTER;
-        *v = false;
-        if (auto* window = HostWindow()) {
-            MONITORINFO monitor{};
-            monitor.cbSize = sizeof(monitor);
-            RECT r{};
-            if (GetWindowRect(window, &r) &&
-                GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor))
-                *v = EqualRect(&r, &monitor.rcMonitor) != FALSE;
-        }
-        Log("TRACE", "ApplicationView.IsFullScreen=%u", static_cast<unsigned>(*v));
+        *v = true;
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE get_IsOnLockScreen(boolean* v) override { return get_AdjacentToLeftDisplayEdge(v); }
