@@ -41,18 +41,24 @@ static std::string Narrow(HSTRING text) {
 static std::vector<std::string> events;
 static ComPtr<IInspectable> lastParameter;
 // Aggregates a shim Page, as a C++/CX page class does, and records overrides.
-class PageOuter final : public IPageOverrides {
+class PageOuter final : public IPageOverrides, public IComponentConnector {
     std::atomic<ULONG> refs_{1};
     std::string name_;
 
 public:
     ComPtr<IInspectable> inner;
+    int connections = 0;
     explicit PageOuter(std::string name) : name_(std::move(name)) {}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** out) override {
         if (!out) return E_POINTER;
         *out = nullptr;
         if (iid == __uuidof(IUnknown) || iid == __uuidof(IInspectable) || iid == __uuidof(IPageOverrides)) {
             *out = static_cast<IPageOverrides*>(this);
+            AddRef();
+            return S_OK;
+        }
+        if (iid == __uuidof(IComponentConnector)) {
+            *out = static_cast<IComponentConnector*>(this);
             AddRef();
             return S_OK;
         }
@@ -93,6 +99,18 @@ public:
     HRESULT STDMETHODCALLTYPE OnNavigatedFrom(INavigationEventArgs* args) override { return Record("from", args); }
     HRESULT STDMETHODCALLTYPE OnNavigatedTo(INavigationEventArgs* args) override { return Record("to", args); }
     HRESULT STDMETHODCALLTYPE OnNavigatingFrom(INavigatingCancelEventArgs*) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE Connect(INT32 id, IInspectable* target) override {
+        CHECK(id == 1 && target);
+        ComPtr<IMediaElement> media;
+        CHECK(SUCCEEDED(target->QueryInterface(IID_PPV_ARGS(&media))));
+        ComPtr<IFrameworkElement> element;
+        CHECK(SUCCEEDED(inner.As(&element)));
+        ComPtr<IInspectable> named;
+        CHECK(SUCCEEDED(element->FindName(HStringReference(L"mediaElement").Get(), &named)));
+        CHECK(named.Get() == target);
+        ++connections;
+        return S_OK;
+    }
 };
 static std::vector<PageOuter*> pages;
 class XamlType final : public RuntimeClass<RuntimeClassFlags<WinRt>, IXamlType> {
@@ -108,7 +126,7 @@ public:
         if (FAILED(hr)) return hr;
         auto* outer = new PageOuter(name_);
         ComPtr<IPage> page;
-        hr = pageFactory->CreateInstance(outer, &outer->inner, &page);
+        hr = pageFactory->CreateInstance(static_cast<IPageOverrides*>(outer), &outer->inner, &page);
         if (FAILED(hr)) {
             outer->Release();
             return hr;
@@ -256,6 +274,24 @@ static void TestMediaElement() {
     ComPtr<IInspectable> object, same;
     CHECK(SUCCEEDED(element->FindName(HStringReference(L"mediaElement").Get(), &object)) && object);
     CHECK(SUCCEEDED(element->FindName(HStringReference(L"mediaElement").Get(), &same)) && same.Get() == object.Get());
+    // LoadComponent must run the compiled XAML connector; binding the named
+    // field alone leaves the game's startup watchdog armed during playback.
+    auto* outer = new PageOuter("MovieMgrPage");
+    ComPtr<IPage> movie;
+    CHECK(SUCCEEDED(pageFactory->CreateInstance(static_cast<IPageOverrides*>(outer), &outer->inner, &movie)));
+    ComPtr<IActivationFactory> appFactory;
+    CHECK(SUCCEEDED(get(HStringReference(L"Windows.UI.Xaml.Application").Get(), &appFactory)));
+    ComPtr<IApplicationStatics> appStatics;
+    CHECK(SUCCEEDED(appFactory.As(&appStatics)));
+    ComPtr<ABI::Windows::Foundation::IUriRuntimeClassFactory> componentUris;
+    CHECK(SUCCEEDED(
+        RoGetActivationFactory(HStringReference(L"Windows.Foundation.Uri").Get(), IID_PPV_ARGS(&componentUris))));
+    ComPtr<ABI::Windows::Foundation::IUriRuntimeClass> componentUri;
+    CHECK(SUCCEEDED(componentUris->CreateUri(HStringReference(L"ms-appx:///MovieMgrPage.xaml").Get(), &componentUri)));
+    CHECK(SUCCEEDED(appStatics->LoadComponent(movie.Get(), componentUri.Get())));
+    CHECK(outer->connections == 1);
+    movie.Reset();
+    outer->Release();
     ComPtr<IMediaElement> media;
     ComPtr<IMediaElement2> media2;
     if (!object || FAILED(object.As(&media)) || FAILED(object.As(&media2))) {

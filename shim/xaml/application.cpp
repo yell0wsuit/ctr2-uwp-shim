@@ -4,6 +4,7 @@
 #include "host/host.h"
 #include "registry.h"
 #include <windows.applicationmodel.activation.h>
+#include <windows.ui.xaml.markup.h>
 #include <wrl/event.h>
 #include <thread>
 #include <atomic>
@@ -115,12 +116,28 @@ public:
         if (!value) return E_POINTER;
         return current.CopyTo(value);
     }
-    HRESULT STDMETHODCALLTYPE LoadComponent(IInspectable*, ABI::Windows::Foundation::IUriRuntimeClass* uri) override {
+    HRESULT STDMETHODCALLTYPE LoadComponent(IInspectable* component,
+                                            ABI::Windows::Foundation::IUriRuntimeClass* uri) override {
         if (!uri) return E_INVALIDARG;
         HSTRING text{};
         uri->get_AbsoluteUri(&text);
         Log("TRACE", "Application::LoadComponent %ls", WindowsGetStringRawBuffer(text, nullptr));
+        const bool movie = wcscmp(WindowsGetStringRawBuffer(text, nullptr), L"ms-appx:///MovieMgrPage.xaml") == 0;
         WindowsDeleteString(text);
+        if (movie && component) {
+            // The compiled XAML's connection 1 installs MediaOpened/Ended/Failed
+            // and PointerPressed handlers. FindName alone only binds the field.
+            ComPtr<ABI::Windows::UI::Xaml::Markup::IComponentConnector> connector;
+            auto hr = component->QueryInterface(IID_PPV_ARGS(&connector));
+            if (FAILED(hr)) return hr;
+            ComPtr<IFrameworkElement> element;
+            hr = component->QueryInterface(IID_PPV_ARGS(&element));
+            if (FAILED(hr)) return hr;
+            ComPtr<IInspectable> media;
+            hr = element->FindName(Wrappers::HStringReference(L"mediaElement").Get(), &media);
+            if (FAILED(hr)) return hr;
+            return connector->Connect(1, media.Get());
+        }
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE LoadComponentWithResourceLocation(

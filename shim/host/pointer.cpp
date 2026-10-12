@@ -189,6 +189,7 @@ public:
 static std::map<IInspectable*, PointerCallback> targets;
 static IInspectable* captureOwner;
 static IInspectable* activeTarget;
+IInspectable* CurrentPointerTarget() noexcept { return activeTarget; }
 void SetPointerTarget(IInspectable* target) {
     ComPtr<Xaml::IFrameworkElement> element;
     activeTarget = target && SUCCEEDED(target->QueryInterface(IID_PPV_ARGS(&element))) ? element.Get() : nullptr;

@@ -89,67 +89,6 @@ HRESULT MakeGrid(IInspectable** value) {
     grid->Release();
     return hr;
 }
-// MovieMgrPage's intro video. Playback is not implemented: the element keeps its
-// settings and accepts transport calls, and the page's own 3-second
-// DispatcherTimer stops it and returns to MainPage.
-class MediaElement final : public Element<MediaElement, DefaultIMediaElement, DefaultIMediaElement2> {
-    ComPtr<ABI::Windows::Foundation::IUriRuntimeClass> source_;
-    boolean autoPlay_ = true;
-    ABI::Windows::UI::Xaml::Media::Stretch stretch_ = ABI::Windows::UI::Xaml::Media::Stretch_Uniform;
-
-public:
-    static constexpr const wchar_t* Name = L"Windows.UI.Xaml.Controls.MediaElement";
-    explicit MediaElement(IInspectable* outer) : Element(outer) {}
-    HRESULT STDMETHODCALLTYPE get_Source(ABI::Windows::Foundation::IUriRuntimeClass** value) override {
-        if (!value) return E_POINTER;
-        return source_.CopyTo(value);
-    }
-    HRESULT STDMETHODCALLTYPE put_Source(ABI::Windows::Foundation::IUriRuntimeClass* value) override {
-        source_ = value;
-        HSTRING uri{};
-        if (value) value->get_AbsoluteUri(&uri);
-        Log("TRACE", "MediaElement Source=%ls (playback not implemented)", WindowsGetStringRawBuffer(uri, nullptr));
-        WindowsDeleteString(uri);
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE get_AutoPlay(boolean* value) override {
-        if (!value) return E_POINTER;
-        *value = autoPlay_;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE put_AutoPlay(boolean value) override {
-        autoPlay_ = value;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE get_CurrentState(ABI::Windows::UI::Xaml::Media::MediaElementState* value) override {
-        if (!value) return E_POINTER;
-        *value = source_ ? ABI::Windows::UI::Xaml::Media::MediaElementState_Stopped
-                         : ABI::Windows::UI::Xaml::Media::MediaElementState_Closed;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE Play() override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE Pause() override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE Stop() override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE get_Stretch(ABI::Windows::UI::Xaml::Media::Stretch* value) override {
-        if (!value) return E_POINTER;
-        *value = stretch_;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE put_Stretch(ABI::Windows::UI::Xaml::Media::Stretch value) override {
-        stretch_ = value;
-        return S_OK;
-    }
-};
-HRESULT MakeMediaElement(IInspectable** value) {
-    if (!value) return E_POINTER;
-    *value = nullptr;
-    IMediaElement* media = nullptr;
-    auto hr = Compose<MediaElement>(nullptr, nullptr, &media);
-    if (FAILED(hr)) return hr;
-    hr = media->QueryInterface(IID_PPV_ARGS(value));
-    media->Release();
-    return hr;
-}
 // Lets a Frame tell the shim Page it hosts which frame that is (Page.Frame).
 // The Frame clears it before dropping the page; the page never owns the frame.
 struct __declspec(uuid("ce92a3c3-5de3-4473-9528-b14b510702c0")) IHostedPage : public IUnknown {
