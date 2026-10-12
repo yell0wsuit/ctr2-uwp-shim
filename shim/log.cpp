@@ -1,22 +1,33 @@
 #include "log.h"
+#include "options.h"
 #include <winstring.h>
 #include <cstdio>
 #include <cstdarg>
 #include <cstring>
 #include <mutex>
+#include <string>
 
 namespace ctr2 {
-bool TraceMode() noexcept {
-    wchar_t value[16]{};
-    GetEnvironmentVariableW(L"CTR2SHIM_MODE", value, 16);
-    return wcscmp(value, L"trace") == 0;
+bool TraceMode() noexcept { return GetOptions().passthrough; }
+// ctr2shim.log beside the game executable.
+static const std::wstring& LogPath() noexcept {
+    static const std::wstring path = []() noexcept -> std::wstring {
+        try {
+            std::wstring module(32768, L'\0');
+            auto size = GetModuleFileNameW(nullptr, module.data(), static_cast<DWORD>(module.size()));
+            module.resize(size < module.size() ? size : 0);
+            auto slash = module.rfind(L'\\');
+            return slash == std::wstring::npos ? std::wstring() : module.substr(0, slash + 1) + L"ctr2shim.log";
+        } catch (...) {
+            return {}; // No log rather than a crash.
+        }
+    }();
+    return path;
 }
 void Log(const char* level, const char* format, ...) noexcept {
-    if (strcmp(level, "TRACE") == 0) {
-        wchar_t flag[4]{};
-        GetEnvironmentVariableW(L"CTR2SHIM_TRACE", flag, 4);
-        if (flag[0] != L'1' && !TraceMode()) return;
-    }
+    // Off unless --log or --trace (or their environment variables) is given.
+    const auto& options = GetOptions();
+    if (!options.log || (!options.trace && strcmp(level, "TRACE") == 0)) return;
     static std::mutex lock;
     std::lock_guard<std::mutex> guard(lock);
     char message[1600]{};
@@ -27,13 +38,9 @@ void Log(const char* level, const char* format, ...) noexcept {
     char line[1800]{};
     snprintf(line, sizeof(line), "[%llu][%lu] %s %s\r\n", GetTickCount64(), GetCurrentThreadId(), level, message);
     OutputDebugStringA(line);
-    wchar_t path[32768]{};
-    auto size = GetModuleFileNameW(nullptr, path, 32768);
-    if (!size || size >= 32768) return;
-    auto* slash = wcsrchr(path, L'\\');
-    if (!slash) return;
-    wcscpy_s(slash + 1, 32768 - (slash + 1 - path), L"ctr2shim.log");
-    HANDLE file = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
+    const auto& path = LogPath();
+    if (path.empty()) return;
+    HANDLE file = CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
                               FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) return;
     DWORD written;

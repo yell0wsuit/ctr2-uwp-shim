@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Usage: run.sh [GAME_DIRECTORY] [--trace] [--capture] [--diagnostics] [--passthrough]
 root=$(cd "$(dirname "$0")/.." && pwd)
-game=${1:-"$root/local/game"}
+game="$root/local/game"
+# --log always: the relaunch check below reads the log.
+flags=(--log)
+for arg in "$@"; do
+  case "$arg" in
+    --*) flags+=("$arg") ;;
+    *) game=$arg ;;
+  esac
+done
 export WINEPREFIX=${WINEPREFIX:-"$root/local/wine-test"}
 export WINEDEBUG=${WINEDEBUG:--all}
 export MVK_CONFIG_LOG_LEVEL=${MVK_CONFIG_LOG_LEVEL:-0}
-export CTR2SHIM_TRACE=${CTR2SHIM_TRACE:-1}
-export CTR2SHIM_MODE=${CTR2SHIM_MODE:-shim}
 export WINEDLLOVERRIDES="d3dcompiler_47=n,b;msvcr120_app,msvcp120_app,vccorlib120_app=n${WINEDLLOVERRIDES:+;$WINEDLLOVERRIDES}"
 wine=${WINE:-"$HOME/Applications/Wine Devel.app/Contents/Resources/wine/bin/wine"}
 [[ -x "$wine" ]] || { echo 'Set WINE to your Wine executable.' >&2; exit 1; }
@@ -21,7 +28,7 @@ cd "$game"
 status=0
 for attempt in 1 2 3; do
   start=$(wc -l < ctr2shim.log 2>/dev/null || echo 0)
-  "$wine" Game.exe && exit 0 || status=$?
+  "$wine" Game.exe "${flags[@]}" && exit 0 || status=$?
   run=$(tail -n +$((start + 1)) ctr2shim.log 2>/dev/null || true)
   if grep -q 'CreateDXGIFactory1 begin' <<< "$run" && ! grep -q 'CreateDXGIFactory1 hr=' <<< "$run"; then
     echo "Wine graphics startup crashed (attempt $attempt/3); relaunching." >&2

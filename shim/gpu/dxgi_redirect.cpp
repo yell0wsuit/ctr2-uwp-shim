@@ -1,6 +1,7 @@
 #include "dxgi_redirect.h"
 #include "host/host.h"
 #include "log.h"
+#include "options.h"
 #include <d3d11.h>
 #include <dxgi1_3.h>
 #include <wrl/client.h>
@@ -38,8 +39,7 @@ static void CaptureFrame(IDXGISwapChain* swap) {
     if (frame <= 10) Log("TRACE", "swap-chain frame %u", frame);
     if (frame != 1 && frame % 120 != 0) return;
     if (frame > 10) Log("TRACE", "swap-chain frame %u", frame);
-    wchar_t enabled[2]{};
-    if (!GetEnvironmentVariableW(L"CTR2SHIM_CAPTURE", enabled, 2) || enabled[0] != L'1') return;
+    if (!GetOptions().capture) return;
     ComPtr<ID3D11Texture2D> back;
     HRESULT hr = swap->GetBuffer(0, IID_PPV_ARGS(&back));
     if (FAILED(hr)) return;
@@ -246,9 +246,9 @@ HRESULT InitializeGraphicsRedirect() {
     std::call_once(once, [] {
         ComPtr<IDXGIFactory2> factory;
         // First GPU call on the view thread; brackets Wine graphics startup stalls.
-        Log("TRACE", "CreateDXGIFactory1 begin");
+        Log("INFO", "CreateDXGIFactory1 begin");
         result = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
-        Log(FAILED(result) ? "FAIL" : "TRACE", "CreateDXGIFactory1 hr=%08lx", result);
+        Log(FAILED(result) ? "FAIL" : "INFO", "CreateDXGIFactory1 hr=%08lx", result);
         if (FAILED(result)) return;
         auto* table = *reinterpret_cast<void***>(factory.Get());
         // IDXGIFactory2 slot 24, copied from dxgi1_2.h's SDK ABI layout.

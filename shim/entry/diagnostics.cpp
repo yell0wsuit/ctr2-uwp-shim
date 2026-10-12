@@ -1,12 +1,11 @@
 #include <windows.h>
 #include "log.h"
+#include "options.h"
 #include <mutex>
 #include <intrin.h>
 namespace ctr2 {
 static void LogAngleError(EXCEPTION_POINTERS* fault) noexcept {
-    wchar_t enabled[4]{};
-    GetEnvironmentVariableW(L"CTR2SHIM_DIAGNOSTICS", enabled, 4);
-    if (enabled[0] != L'1' || fault->ExceptionRecord->NumberParameters < 2) return;
+    if (!GetOptions().diagnostics || fault->ExceptionRecord->NumberParameters < 2) return;
     wchar_t message[64]{};
     SIZE_T read{};
     ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(fault->ExceptionRecord->ExceptionInformation[1]),
@@ -33,9 +32,7 @@ static void LogAngleError(EXCEPTION_POINTERS* fault) noexcept {
             index, storage, state[0], state[1], state[2], state[3], state[4], state[5]);
 }
 void LogThreadStorage() noexcept {
-    wchar_t enabled[4]{};
-    GetEnvironmentVariableW(L"CTR2SHIM_DIAGNOSTICS", enabled, 4);
-    if (enabled[0] != L'1') return;
+    if (!GetOptions().diagnostics) return;
     auto* image = reinterpret_cast<BYTE*>(GetModuleHandleW(nullptr));
     auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(image);
     auto* nt = reinterpret_cast<IMAGE_NT_HEADERS32*>(image + dos->e_lfanew);
@@ -113,9 +110,7 @@ static LONG CALLBACK LogFault(EXCEPTION_POINTERS* fault) {
     return EXCEPTION_CONTINUE_SEARCH;
 }
 void InitializeDiagnostics() {
-    wchar_t enabled[4]{};
-    GetEnvironmentVariableW(L"CTR2SHIM_DIAGNOSTICS", enabled, 4);
-    if (enabled[0] != L'1') return;
+    if (!GetOptions().diagnostics) return;
     static std::once_flag once;
     std::call_once(once, [] { AddVectoredExceptionHandler(1, LogFault); });
 }
