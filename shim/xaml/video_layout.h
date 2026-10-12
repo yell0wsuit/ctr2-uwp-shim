@@ -1,8 +1,9 @@
 #pragma once
 #include <windows.h>
+#include <cmath>
 namespace ctr2 {
 // MediaElement's Stretch modes; None draws like Uniform, as before.
-enum class VideoFit { Fill, Uniform, UniformToFill };
+enum class VideoFit : unsigned char { Fill, Uniform, UniformToFill };
 // The part of the frame to draw (0..1 of its width and height), and where.
 struct VideoLayout {
     struct {
@@ -28,11 +29,11 @@ inline VideoLayout LayoutVideo(SIZE video, SIZE window, VideoFit fit) {
     }
     // Uniform: the largest centered rectangle with the video's shape.
     if (videoAspect > windowAspect) {
-        const auto height = static_cast<LONG>(window.cx / videoAspect + 0.5);
+        const auto height = static_cast<LONG>(std::lround(window.cx / videoAspect));
         layout.target.top = (window.cy - height) / 2;
         layout.target.bottom = layout.target.top + height;
     } else {
-        const auto width = static_cast<LONG>(window.cy * videoAspect + 0.5);
+        const auto width = static_cast<LONG>(std::lround(window.cy * videoAspect));
         layout.target.left = (window.cx - width) / 2;
         layout.target.right = layout.target.left + width;
     }

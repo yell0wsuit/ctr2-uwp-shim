@@ -117,8 +117,8 @@ class VideoOutput {
             const auto layout =
                 LayoutVideo(SIZE{static_cast<LONG>(width), static_cast<LONG>(height)},
                             SIZE{static_cast<LONG>(desc.Width), static_cast<LONG>(desc.Height)}, fit_.load());
-            const MFVideoNormalizedRect source{layout.source.left, layout.source.top, layout.source.right,
-                                               layout.source.bottom};
+            const auto& crop = layout.source;
+            const MFVideoNormalizedRect source{crop.left, crop.top, crop.right, crop.bottom};
             const MFARGB border{0, 0, 0, 255};
             hr = engine_->TransferVideoFrame(back.Get(), &source, &layout.target, &border);
             if (FAILED(hr) && fresh) return hr;
@@ -159,7 +159,8 @@ class VideoOutput {
             if (redraw) continue; // Present already waited for the display.
             // Poll for the next frame once per refresh. WaitForVBlank returns
             // at once where it is unsupported; sleep then instead of spinning.
-            LARGE_INTEGER start{}, end{};
+            LARGE_INTEGER start{};
+            LARGE_INTEGER end{};
             QueryPerformanceCounter(&start);
             if (!output) swap_->GetContainingOutput(&output);
             if (!output || FAILED(output->WaitForVBlank())) output.Reset();
@@ -171,8 +172,12 @@ class VideoOutput {
 public:
     ~VideoOutput() { Stop(); }
     HRESULT Initialize(const MediaFoundation& api) {
-        static const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_1,
-                                                   D3D_FEATURE_LEVEL_10_0, D3D_FEATURE_LEVEL_9_3};
+        static const D3D_FEATURE_LEVEL levels[] = {
+            D3D_FEATURE_LEVEL_11_0,
+            D3D_FEATURE_LEVEL_10_1,
+            D3D_FEATURE_LEVEL_10_0,
+            D3D_FEATURE_LEVEL_9_3,
+        };
         // Video support lets the engine decode on the GPU; without it the
         // engine may still decode in software.
         UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT;
