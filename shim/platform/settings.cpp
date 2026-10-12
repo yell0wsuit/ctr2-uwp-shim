@@ -9,6 +9,7 @@
 #include <iomanip>
 #include <limits>
 #include <locale>
+#include <map>
 #include <mutex>
 #include <sstream>
 #include <vector>
@@ -43,12 +44,18 @@ std::wstring String(HSTRING value) {
     const auto* p = WindowsGetStringRawBuffer(value, &n);
     return {p, n};
 }
-// Escape individual UTF-16 code units. This preserves embedded nulls and surrogate pairs.
+// Printable ASCII is written as itself. Anything else is escaped per UTF-16
+// code unit, which preserves embedded nulls and surrogate pairs.
 std::string Quote(const std::wstring& value) {
     static constexpr char hex[] = "0123456789abcdef";
     std::string result = "\"";
+    result.reserve(value.size() + 2);
     for (auto c : value) {
         unsigned u = static_cast<unsigned short>(c);
+        if (u >= 0x20 && u < 0x7f && u != '"' && u != '\\') {
+            result += static_cast<char>(u);
+            continue;
+        }
         result += "\\u";
         for (int shift = 12; shift >= 0; shift -= 4) result += hex[(u >> shift) & 15];
     }
@@ -366,6 +373,8 @@ HRESULT Seek(HANDLE file, size_t offset) {
 // save (one Insert per pref, about 1,200 of them) stall its render thread for
 // seconds, so changes append to the journal, which is replayed on load and
 // folded into the snapshot (compacted) on load and once it grows large.
+// A save also stores every pref again, mostly unchanged; storing an equal
+// value adds no record.
 class SettingsPersistence final {
     friend class PersistentPropertySet;
     static constexpr size_t CompactBytes = 1024 * 1024;
@@ -375,6 +384,9 @@ class SettingsPersistence final {
     Handle journalFile_{INVALID_HANDLE_VALUE};
     size_t journalBytes_ = 0; // Length of the journal's complete, valid records.
     ComPtr<Map> map_;
+    // The persisted form of every value, by key: what reloading would give.
+    // Updated with each record, so compaction writes it without re-encoding.
+    std::map<std::wstring, Entry> entries_;
     std::mutex mutex_;
 
 public:
@@ -423,6 +435,10 @@ public:
         journalBytes_ += text.size();
         return S_OK;
     }
+    bool Unchanged(const Entry& entry) const {
+        auto stored = entries_.find(entry.key);
+        return stored != entries_.end() && stored->second.type == entry.type && stored->second.value == entry.value;
+    }
     // Call after the change is applied to map_; the journal already holds it.
     void CompactIfLarge() {
         if (journalBytes_ < CompactBytes) return;
@@ -454,13 +470,16 @@ private:
             if (entry.type == RemoveRecord) {
                 boolean found{};
                 if (SUCCEEDED(map_->HasKey(key.Get(), &found)) && found) hr = map_->Remove(key.Get());
+                entries_.erase(entry.key);
             } else if (entry.type == ClearRecord) {
                 hr = map_->Clear();
+                entries_.clear();
             } else {
                 ComPtr<IInspectable> value;
                 hr = Decode(props.Get(), entry, &value);
                 boolean replaced{};
                 if (SUCCEEDED(hr)) hr = map_->Insert(key.Get(), value.Get(), &replaced);
+                if (SUCCEEDED(hr)) entries_.insert_or_assign(entry.key, entry);
             }
             if (FAILED(hr)) return hr;
             ++applied;
@@ -510,41 +529,19 @@ private:
                 boolean replaced{};
                 hr = map_->Insert(key.Get(), decoded[i].Get(), &replaced);
                 if (FAILED(hr)) return hr;
+                entries_.insert_or_assign(entries[i].key, entries[i]);
             }
         }
         return S_OK;
     }
-    HRESULT Serialize(std::string& text) {
-        ComPtr<IIterable<Pair*>> iterable;
-        auto hr = map_.As(&iterable);
-        if (FAILED(hr)) return hr;
-        ComPtr<IIterator<Pair*>> iterator;
-        hr = iterable->First(&iterator);
-        if (FAILED(hr)) return hr;
+    HRESULT Serialize(std::string& text) const {
         text = "[";
-        boolean has{};
-        hr = iterator->get_HasCurrent(&has);
         bool first = true;
-        while (SUCCEEDED(hr) && has) {
-            ComPtr<Pair> pair;
-            hr = iterator->get_Current(&pair);
-            if (FAILED(hr)) return hr;
-            HString key;
-            hr = pair->get_Key(key.GetAddressOf());
-            if (FAILED(hr)) return hr;
-            ComPtr<IInspectable> value;
-            hr = pair->get_Value(&value);
-            if (FAILED(hr)) return hr;
-            Entry entry;
-            entry.key = String(key.Get());
-            hr = Encode(value.Get(), entry);
-            if (FAILED(hr)) return hr;
+        for (const auto& stored : entries_) {
             if (!first) text += ',';
             first = false;
-            text += "\n" + RecordText(entry);
-            hr = iterator->MoveNext(&has);
+            text += "\n" + RecordText(stored.second);
         }
-        if (FAILED(hr)) return hr;
         text += "\n]\n";
         return text.size() > 16 * 1024 * 1024 ? HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE) : S_OK;
     }
@@ -635,16 +632,22 @@ public:
             if (FAILED(hr)) return hr;
             entry.key = String(key);
             {
-                // Journal first: a change that cannot be recorded is not applied.
                 std::lock_guard<std::mutex> lock(state_->mutex_);
-                hr = state_->Append(entry);
-                if (FAILED(hr)) {
-                    Log("FAIL", "settings save failed hr=%08lx", hr);
-                    return hr;
+                // An equal value is already persisted. It still replaces the
+                // stored object and notifies, as the native map would.
+                const bool unchanged = state_->Unchanged(entry);
+                if (!unchanged) {
+                    // Journal first: a change that cannot be recorded is not applied.
+                    hr = state_->Append(entry);
+                    if (FAILED(hr)) {
+                        Log("FAIL", "settings save failed hr=%08lx", hr);
+                        return hr;
+                    }
+                    state_->entries_.insert_or_assign(entry.key, entry);
                 }
                 hr = state_->map_->Insert(key, value, replaced);
                 if (FAILED(hr)) return hr;
-                state_->CompactIfLarge();
+                if (!unchanged) state_->CompactIfLarge();
             }
             return Notify(*replaced ? CollectionChange_ItemChanged : CollectionChange_ItemInserted, key);
         });
@@ -657,11 +660,13 @@ public:
                 auto hr = state_->map_->HasKey(key, &found);
                 if (FAILED(hr)) return hr;
                 if (!found) return state_->map_->Remove(key); // The backing map's error for a missing key.
-                hr = state_->Append({String(key), RemoveRecord, {}});
+                auto name = String(key);
+                hr = state_->Append({name, RemoveRecord, {}});
                 if (FAILED(hr)) {
                     Log("FAIL", "settings save failed hr=%08lx", hr);
                     return hr;
                 }
+                state_->entries_.erase(name);
                 hr = state_->map_->Remove(key);
                 if (FAILED(hr)) return hr;
                 state_->CompactIfLarge();
@@ -678,6 +683,7 @@ public:
                     Log("FAIL", "settings save failed hr=%08lx", hr);
                     return hr;
                 }
+                state_->entries_.clear();
                 hr = state_->map_->Clear();
                 if (FAILED(hr)) return hr;
                 state_->CompactIfLarge();

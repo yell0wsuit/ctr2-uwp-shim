@@ -215,7 +215,35 @@ int main(int argc, char** argv) {
             }
             printf("burst: %d inserts in %llu ms\n", count, GetTickCount64() - start);
             if (ReadAll(settingsFile) != snapshot) return 51;
-            if (ReadAll(settingsFile + L".journal").empty()) return 52;
+            const std::wstring journalFile = settingsFile + L".journal";
+            const auto journal = ReadAll(journalFile);
+            if (journal.empty()) return 52;
+            // Printable ASCII is stored as itself rather than as \u escapes.
+            if (journal.find("\"__ctr2shim_test_burst_0\"") == std::string::npos) return 56;
+            // A save stores every pref again, most of them unchanged. An equal
+            // value still replaces and notifies, but adds nothing to the journal.
+            const auto eventCount = events;
+            for (int i = 0; i < count; ++i) {
+                std::wstring key = L"__ctr2shim_test_burst_" + std::to_wstring(i);
+                ComPtr<IInspectable> value;
+                props->CreateInt64(i, &value);
+                boolean replaced{};
+                if (FAILED(map->Insert(HStringReference(key.c_str()).Get(), value.Get(), &replaced)) || !replaced)
+                    return 57;
+            }
+            if (ReadAll(journalFile) != journal || events != eventCount + count) return 58;
+            // The type is part of the value: Int32 0 differs from Int64 0, both ways.
+            HStringReference first(L"__ctr2shim_test_burst_0");
+            ComPtr<IInspectable> narrow, wide;
+            props->CreateInt32(0, &narrow);
+            props->CreateInt64(0, &wide);
+            boolean replaced{};
+            if (FAILED(map->Insert(first.Get(), narrow.Get(), &replaced))) return 59;
+            const auto changed = ReadAll(journalFile);
+            if (changed.size() <= journal.size()) return 59;
+            if (FAILED(map->Insert(first.Get(), wide.Get(), &replaced)) ||
+                ReadAll(journalFile).size() <= changed.size())
+                return 60;
             for (int i = 0; i < count; ++i) {
                 std::wstring key = L"__ctr2shim_test_burst_" + std::to_wstring(i);
                 ComPtr<IInspectable> value;
@@ -313,6 +341,11 @@ int main(int argc, char** argv) {
                 if (FAILED(hr) || FAILED(map->Insert(key.Get(), value.Get(), &replaced))) return 17;
                 if (i == 0 && (FAILED(map->Insert(key.Get(), value.Get(), &replaced)) || !replaced)) return 34;
             } else if (argc > 1 && !strcmp(argv[1], "read")) {
+                // Loading replayed the write test's journal and compacted it
+                // into settings.json, which must hold every replayed key.
+                std::string name = "\"";
+                for (const wchar_t* c = keys[i]; *c; ++c) name += static_cast<char>(*c);
+                if (i > 0 && ReadAll(settingsFile).find(name + "\"") == std::string::npos) return 75;
                 ComPtr<IInspectable> value;
                 auto hr = map->Lookup(key.Get(), &value);
                 if (FAILED(hr)) {
