@@ -27,6 +27,22 @@ HRESULT PostHostWork(int priority, std::function<void()> work) {
 }
 HWND HostWindow() noexcept { return window; }
 DWORD HostThread() noexcept { return thread; }
+// The game tears down its renderer on every Deactivated and rebuilds it, behind
+// a "Loading" screen, on the next activation. That suited full-screen Windows
+// 8.1, where losing focus meant switching away; a desktop window loses focus
+// whenever another window is clicked. So the view counts as active while it
+// can be seen, and Activated is raised only when that changes: on minimize,
+// hide, restore, or show. Runs on the UI queue, after the message has settled.
+static bool reportedActive = false;
+static void UpdateActivation(WPARAM activation) {
+    const bool active = window && IsWindowVisible(window) && !IsIconic(window);
+    if (active == reportedActive) return;
+    reportedActive = active;
+    const WPARAM state = active ? (activation == WA_CLICKACTIVE ? WA_CLICKACTIVE : WA_ACTIVE) : WA_INACTIVE;
+    Log("TRACE", "view activation %s", active ? "active" : "deactivated");
+    CoreHostMessage(WM_ACTIVATE, state, 0);
+    XamlHostMessage(WM_ACTIVATE, state, 0);
+}
 static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
     PointerHostMessage(message, wparam, lparam);
     if (message == WM_ACTIVATE) {
@@ -42,8 +58,11 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARA
         // XAML notifications belong to the UI queue. Delivering inside ShowWindow
         // reenters OnLaunched before startup has finished.
         PostHostWork(0, [message, wparam, lparam] {
-            CoreHostMessage(message, wparam, lparam);
-            XamlHostMessage(message, wparam, lparam);
+            if (message != WM_ACTIVATE) {
+                CoreHostMessage(message, wparam, lparam);
+                XamlHostMessage(message, wparam, lparam);
+            }
+            UpdateActivation(message == WM_ACTIVATE ? LOWORD(wparam) : WA_ACTIVE);
         });
     }
     if (message == WorkMessage) {
