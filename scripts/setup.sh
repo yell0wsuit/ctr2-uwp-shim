@@ -53,7 +53,9 @@ DECODE_NAMES
 python3 - "$build" "$destination" <<'COPY_SHIMS'
 import os, pathlib, shutil, sys, tempfile
 build, destination = map(pathlib.Path, sys.argv[1:])
-for name in ('ctr2shim.dll', 'd3dcompiler_47.dll'):
+# wined3d.dll (scripts/build-wined3d.sh) is optional: Wine's own draws nothing.
+optional = [name for name in ('wined3d.dll',) if (build / name).is_file()]
+for name in ['ctr2shim.dll', 'd3dcompiler_47.dll'] + optional:
     fd, temporary = tempfile.mkstemp(prefix=name + '.', dir=destination)
     os.close(fd)
     try:

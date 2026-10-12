@@ -52,6 +52,17 @@ class SetupTests(unittest.TestCase):
             self.assertEqual((dest/'Assets'/'assets'/'maps'/'!_MasterGameDesignDocument.xml').read_bytes(), b'design')
             self.assertFalse((dest/'Assets'/'assets'/'maps'/'%21_MasterGameDesignDocument.xml').exists())
             self.assertEqual((dest/'Assets'/'a b'/'c.txt').read_bytes(), b'c')
+    def test_stages_wined3d_only_when_built(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source, build, dest = stage_inputs(pathlib.Path(temp))
+            setup = ['bash', str(ROOT/'scripts/setup.sh'), str(source), str(dest), str(build)]
+            result = subprocess.run(setup, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertFalse((dest/'wined3d.dll').exists())
+            (build/'wined3d.dll').write_bytes(X86_PE + b'wined3d')
+            result = subprocess.run(setup, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertEqual((dest/'wined3d.dll').read_bytes(), X86_PE + b'wined3d')
     def test_rejects_destination_inside_source_before_writing(self):
         with tempfile.TemporaryDirectory() as temp:
             base = pathlib.Path(temp); source = base/'source'; source.mkdir(); build = base/'build'; build.mkdir()

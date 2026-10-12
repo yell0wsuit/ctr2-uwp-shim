@@ -1,0 +1,128 @@
+Patch for Wine's wined3d.dll (Wine 11.18) so that Direct3D 11 at feature
+level 9_x runs SM4 shader code on the OpenGL renderer on macOS.
+
+macOS stops at OpenGL 4.1, so wined3d caps every D3D11 device at 9_3, and the
+game caps ANGLE at 9_3 too. At 9_x, wined3d ignored the SM4 code and
+signatures and only used Aon9 (SM2) code, which Wine's compiler never emits
+and whose constants the GL backend never receives from D3D11. The SM4 GLSL
+path also required EXT_shader_integer_mix (GL 4.5), used only by ftoi/ftou.
+
+Built by scripts/build-wined3d.sh; see docs/building.md.
+
+--- a/dlls/wined3d/shader_sm4.c
++++ b/dlls/wined3d/shader_sm4.c
+@@ -1985,13 +1985,10 @@
+ 
+     switch (tag)
+     {
++        /* ctr2: keep signatures at feature level 9 too; the SM4 code below
++         * maps outputs and varyings through them. */
+         case TAG_ISGN:
+         case TAG_ISG1:
+-            if (max_version < 4)
+-            {
+-                TRACE("Skipping shader input signature.\n");
+-                break;
+-            }
+             if (shader->input_signature.elements)
+             {
+                 FIXME("Multiple input signatures.\n");
+@@ -2004,11 +2001,6 @@
+         case TAG_OSGN:
+         case TAG_OSG1:
+         case TAG_OSG5:
+-            if (max_version < 4)
+-            {
+-                TRACE("Skipping shader output signature.\n");
+-                break;
+-            }
+             if (shader->output_signature.elements)
+             {
+                 FIXME("Multiple output signatures.\n");
+@@ -2031,12 +2023,10 @@
+ 
+         case TAG_SHDR:
+         case TAG_SHEX:
+-            if (max_version < 4)
+-            {
+-                TRACE("Skipping SM4+ shader.\n");
+-                break;
+-            }
+-            if (shader->function)
++            /* ctr2: prefer SM4 code even at feature level 9. The GL backend
++             * never feeds d3d11 constant buffers to SM1-3 code, and vkd3d's
++             * compiler emits no Aon9 chunk for *_level_9_* profiles. */
++            if (shader->function && *source_type == VKD3D_SHADER_SOURCE_DXBC_TPF)
+                 FIXME("Multiple shader code chunks.\n");
+             shader->function = data;
+             shader->functionLength = data_size;
+@@ -2044,7 +2034,7 @@
+             break;
+ 
+         case TAG_AON9:
+-            if (max_version < 4)
++            if (max_version < 4 && !shader->function)
+             {
+                 const struct aon9_header *header = data;
+                 unsigned int unknown_dword_count;
+--- a/dlls/wined3d/shader.c
++++ b/dlls/wined3d/shader.c
+@@ -2424,7 +2424,7 @@
+         WARN("Wrong shader type %s.\n", debug_shader_type(reg_maps->shader_version.type));
+         return WINED3DERR_INVALIDCALL;
+     }
+-    if (!shader->is_ffp_vs && !shader->is_ffp_ps
++    if (!shader->is_ffp_vs && !shader->is_ffp_ps && shader->source_type != VKD3D_SHADER_SOURCE_DXBC_TPF
+             && version->major > shader_max_version_from_feature_level(shader->device->cs->c.state->feature_level))
+     {
+         WARN("Shader version %u not supported by this device.\n", version->major);
+--- a/dlls/wined3d/glsl_shader.c
++++ b/dlls/wined3d/glsl_shader.c
+@@ -4526,6 +4526,18 @@
+     mask_size = shader_glsl_get_write_mask_size(write_mask);
+     shader_glsl_add_src_param(ins, &ins->src[0], write_mask, &src_param);
+ 
++    /* ctr2: macOS GL 4.1 lacks EXT_shader_integer_mix. 2147483520.0 is the
++     * largest float below 2^31; adding 127 saturates to 0x7fffffff. */
++    if (!((const struct shader_glsl_ctx_priv *)ins->ctx->backend_data)->gl_info->supported[EXT_SHADER_INTEGER_MIX])
++    {
++        if (mask_size > 1)
++            shader_addline(buffer, "(ivec%u(clamp(%s, -2147483648.0, 2147483520.0)) + ivec%u(greaterThanEqual(%s, vec%u(2147483648.0))) * 127) * ivec%u(not(isnan(%s))));\n",
++                    mask_size, src_param.param_str, mask_size, src_param.param_str, mask_size, mask_size, src_param.param_str);
++        else
++            shader_addline(buffer, "(int(clamp(%s, -2147483648.0, 2147483520.0)) + int(%s >= 2147483648.0) * 127) * int(!isnan(%s)));\n",
++                    src_param.param_str, src_param.param_str, src_param.param_str);
++        return;
++    }
+     if (mask_size > 1)
+         shader_addline(buffer, "mix(mix(ivec%u(max(%s, vec%u(-2147483648.0))), ivec%u(0x7fffffff), greaterThanEqual(%s, vec%u(2147483648.0))), ivec%u(0), isnan(%s)));\n",
+                 mask_size, src_param.param_str, mask_size, mask_size, src_param.param_str, mask_size, mask_size, src_param.param_str);
+@@ -4545,6 +4557,18 @@
+     mask_size = shader_glsl_get_write_mask_size(write_mask);
+     shader_glsl_add_src_param(ins, &ins->src[0], write_mask, &src_param);
+ 
++    /* ctr2: 4294967040.0 is the largest float below 2^32; adding 255u
++     * saturates to 0xffffffffu. */
++    if (!((const struct shader_glsl_ctx_priv *)ins->ctx->backend_data)->gl_info->supported[EXT_SHADER_INTEGER_MIX])
++    {
++        if (mask_size > 1)
++            shader_addline(buffer, "uvec%u(clamp(%s, 0.0, 4294967040.0)) + uvec%u(greaterThanEqual(%s, vec%u(4294967296.0))) * 255u);\n",
++                    mask_size, src_param.param_str, mask_size, src_param.param_str, mask_size);
++        else
++            shader_addline(buffer, "uint(clamp(%s, 0.0, 4294967040.0)) + uint(%s >= 4294967296.0) * 255u);\n",
++                    src_param.param_str, src_param.param_str);
++        return;
++    }
+     if (mask_size > 1)
+         shader_addline(buffer, "mix(uvec%u(max(%s, vec%u(0.0))), uvec%u(0xffffffffu), greaterThanEqual(%s, vec%u(4294967296.0))));\n",
+                 mask_size, src_param.param_str, mask_size, mask_size, src_param.param_str, mask_size);
+@@ -11332,8 +11356,7 @@
+ {
+     BOOL shader_model_4 = gl_info->glsl_version >= MAKEDWORD_VERSION(1, 50)
+             && gl_info->supported[ARB_SHADER_BIT_ENCODING]
+-            && gl_info->supported[ARB_TEXTURE_SWIZZLE]
+-            && gl_info->supported[EXT_SHADER_INTEGER_MIX];
++            && gl_info->supported[ARB_TEXTURE_SWIZZLE];
+ 
+     if (shader_model_4
+             && gl_info->supported[ARB_COMPUTE_SHADER]

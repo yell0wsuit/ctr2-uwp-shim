@@ -14,7 +14,11 @@ done
 export WINEPREFIX=${WINEPREFIX:-"$root/local/wine-test"}
 export WINEDEBUG=${WINEDEBUG:--all}
 export MVK_CONFIG_LOG_LEVEL=${MVK_CONFIG_LOG_LEVEL:-0}
-export WINEDLLOVERRIDES="d3dcompiler_47=n,b;msvcr120_app,msvcp120_app,vccorlib120_app=n${WINEDLLOVERRIDES:+;$WINEDLLOVERRIDES}"
+overrides="d3dcompiler_47=n,b;msvcr120_app,msvcp120_app,vccorlib120_app=n"
+# The patched wined3d.dll from build-wined3d.sh, when staged: without it Wine
+# rejects every shader the game compiles and draws nothing.
+[[ ! -f "$game/wined3d.dll" ]] || overrides+=";wined3d=n"
+export WINEDLLOVERRIDES="$overrides${WINEDLLOVERRIDES:+;$WINEDLLOVERRIDES}"
 wine=${WINE:-"$HOME/Applications/Wine Devel.app/Contents/Resources/wine/bin/wine"}
 [[ -x "$wine" ]] || { echo 'Set WINE to your Wine executable.' >&2; exit 1; }
 [[ -f "$game/Game.exe" && -f "$game/ctr2shim.dll" ]] || { echo 'Run setup.sh first.' >&2; exit 1; }
