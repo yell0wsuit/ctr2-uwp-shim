@@ -75,11 +75,28 @@ static LONG CALLBACK LogFault(EXCEPTION_POINTERS* fault) {
     Log("FAIL", "access violation ip=%08lx address=%08lx eax=%08lx ecx=%08lx edx=%08lx esp=%08lx ebp=%08lx",
         context->Eip, static_cast<DWORD>(fault->ExceptionRecord->ExceptionInformation[1]), context->Eax, context->Ecx,
         context->Edx, context->Esp, context->Ebp);
-    DWORD stack[32]{};
+    // Frame-pointer-omitting game functions hide their callers from the ebp
+    // walk below, so also scan the stack for words inside Game.exe's image.
+    // Windows relocates the image (ASLR); RVAs match a disassembly at any base.
+    auto* image = reinterpret_cast<BYTE*>(GetModuleHandleW(nullptr));
+    auto* nt = reinterpret_cast<IMAGE_NT_HEADERS32*>(image + reinterpret_cast<IMAGE_DOS_HEADER*>(image)->e_lfanew);
+    const DWORD base = reinterpret_cast<DWORD>(image), size = nt->OptionalHeader.SizeOfImage;
+    DWORD stack[512]{};
     SIZE_T read{};
-    if (ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(context->Esp), stack, sizeof(stack), &read)) {
-        for (unsigned i = 0; i < 32; ++i)
-            if (stack[i] >= 0x400000 && stack[i] < 0x9f0000) Log("FAIL", "stack[%u]=%08lx", i, stack[i]);
+    // The handler runs on the faulting thread; fs:[4] is that thread's stack base.
+    const DWORD stackBase = __readfsdword(4);
+    SIZE_T length = sizeof(stack);
+    if (stackBase > context->Esp && stackBase - context->Esp < length) length = stackBase - context->Esp;
+    ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(context->Esp), stack, length, &read);
+    for (unsigned i = 0; i < read / sizeof(DWORD); ++i)
+        if (stack[i] - base < size) Log("FAIL", "stack[%u]=%08lx rva=%08lx", i, stack[i], stack[i] - base);
+    // Short std::strings live inline on the stack; their text names the data
+    // (asset keys, resource names) the faulting code was handling.
+    const auto* text = reinterpret_cast<const char*>(stack);
+    for (SIZE_T start = 0, i = 0; i <= read; ++i) {
+        if (i < read && text[i] >= 0x20 && text[i] < 0x7f) continue;
+        if (i - start >= 4) Log("FAIL", "stack text +%03zx \"%.*s\"", start, static_cast<int>(i - start), text + start);
+        start = i + 1;
     }
     DWORD frame = context->Ebp;
     for (unsigned i = 0; i < 16 && frame; ++i) {
