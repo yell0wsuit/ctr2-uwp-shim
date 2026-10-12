@@ -1,5 +1,6 @@
 #include "registry.h"
 #include "log.h"
+#include "version.h"
 #include <winstring.h>
 #include <new>
 
@@ -64,10 +65,11 @@ extern "C" HRESULT WINAPI DllCanUnloadNow() { return S_FALSE; }
 extern "C" void __cdecl ShimBootstrap() noexcept {}
 BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
-        // ctr2shim.log appends across runs; mark where each process starts.
+        // Opens each run's log and names the build, so a log shows which DLL ran.
         wchar_t path[MAX_PATH]{};
         GetModuleFileNameW(nullptr, path, MAX_PATH);
-        ctr2::Log("INFO", "==== ctr2shim attached pid=%lu exe=%ls ====", GetCurrentProcessId(), path);
+        ctr2::Log("INFO", "==== ctr2shim attached version=%s commit=%s pid=%lu exe=%ls ====", CTR2SHIM_VERSION,
+                  CTR2SHIM_COMMIT, GetCurrentProcessId(), path);
         ctr2::PatchActivationImports();
     }
     return TRUE;

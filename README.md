@@ -78,7 +78,8 @@ Window settings are stored in `Local/window.ini` inside your save folder. Close 
 
 - **Setup reports a missing file:** check that the source folder contains `Game.exe`, `Assets`, and all three x86 runtime DLLs listed above. The folder passed as `-BuildDirectory` must contain both extracted shim DLLs.
 - **The game fails to start or crashes after loading:** the shim automatically repairs the two `%21` map filenames in `Assets\assets\maps`. Make sure the game folder is writable, or use the setup script to decode the filenames in a separate game folder.
-- **Need a log:** open PowerShell in the game folder and run `.\Game.exe --log`. The log is written to `ctr2shim.log` beside `Game.exe`. Use `--trace` for detailed call logging or `--diagnostics` for crash details; both also enable logging. With a copy of the repository and Python 3, you can also run `python scripts/play.py --game "C:\Games\CutTheRope2UWP" --log` from the repository root.
+- **Check which shim is installed:** right-click `ctr2shim.dll` beside `Game.exe` and open **Properties → Details**. **Product version** shows the release, such as `v2026.10.12-4`, and the commit it was built from. Both shim DLLs should show the same version.
+- **Need a log:** open PowerShell in the game folder and run `.\Game.exe --log`. The log is written to `ctr2shim.log` beside `Game.exe`; the two previous runs are kept as `ctr2shim.1.log` and `ctr2shim.2.log`. Its first line names the shim version and commit. Use `--trace` for detailed call logging or `--diagnostics` for crash details; both also enable logging. With a copy of the repository and Python 3, you can also run `python scripts/play.py --game "C:\Games\CutTheRope2UWP" --log` from the repository root.
 
 Run `python scripts/play.py --help` for all launcher options.  
 See the [building guide](docs/building.md) for compilation, tests, and code generation.
