@@ -84,10 +84,11 @@ int wmain(int argc, wchar_t** argv) {
             CHECK(WritePrivateProfileStringW(L"window", L"Height", mode == L"oversized" ? L"50000" : L"480",
                                              file.c_str()));
             CHECK(WritePrivateProfileStringW(L"window", L"State",
-                                             mode == L"invalidstate" ? L"3"
-                                             : full                  ? L"2"
-                                             : maximized             ? L"1"
-                                                                     : L"0",
+                                             mode == L"invalidstate"   ? L"bogus"
+                                             : mode == L"numericstate" ? L"1"
+                                             : full                    ? L"FullScreen"
+                                             : maximized               ? L"MAXIMIZED"
+                                                                       : L"Windowed",
                                              file.c_str()));
         }
     }
@@ -102,125 +103,136 @@ int wmain(int argc, wchar_t** argv) {
     CHECK(SUCCEEDED(factory.As(&statics)));
     CHECK(SUCCEEDED(factory.As(&compose)));
     ComPtr<IApplication> app;
-    auto callback =
-        Callback<IApplicationInitializationCallback>([&](IApplicationInitializationCallbackParams*) -> HRESULT {
-            CHECK(SUCCEEDED(compose->CreateInstance(nullptr, nullptr, &app)));
-            ComPtr<IActivationFactory> windowFactory, viewFactory;
-            ComPtr<IWindowStatics> windows;
-            ComPtr<IWindow> window;
-            ComPtr<IApplicationViewStatics2> views;
-            ComPtr<IApplicationView> view;
-            ComPtr<IApplicationView3> view3;
-            CHECK(SUCCEEDED(get(HStringReference(L"Windows.UI.Xaml.Window").Get(), &windowFactory)));
-            CHECK(SUCCEEDED(windowFactory.As(&windows)));
-            CHECK(SUCCEEDED(windows->get_Current(&window)));
-            CHECK(SUCCEEDED(get(HStringReference(L"Windows.UI.ViewManagement.ApplicationView").Get(), &viewFactory)));
-            CHECK(SUCCEEDED(viewFactory.As(&views)));
-            CHECK(SUCCEEDED(views->GetForCurrentView(&view)));
-            CHECK(SUCCEEDED(view.As(&view3)));
-            auto* host = TestWindow();
-            CHECK(host);
-            CHECK(!IsWindowVisible(host)); // Restore must not show the host during construction.
-            CHECK(SUCCEEDED(window->Activate()));
-            boolean fullscreen = false;
-            CHECK(SUCCEEDED(view3->get_IsFullScreenMode(&fullscreen)));
-            if (action == L"write") {
-                CHECK(SUCCEEDED(view3->ExitFullScreenMode()));
-                ShowWindow(host, SW_RESTORE);
-                WINDOWPLACEMENT placement{sizeof(WINDOWPLACEMENT)};
-                GetWindowPlacement(host, &placement);
-                RECT outer{0, 0, 640, 480};
-                CHECK(AdjustWindowRectEx(&outer, static_cast<DWORD>(GetWindowLongPtrW(host, GWL_STYLE)), FALSE,
-                                         static_cast<DWORD>(GetWindowLongPtrW(host, GWL_EXSTYLE))));
-                placement.rcNormalPosition = {80, 90, 80 + outer.right - outer.left, 90 + outer.bottom - outer.top};
-                placement.showCmd = SW_SHOWNORMAL;
-                placement.flags = 0;
-                CHECK(SetWindowPlacement(host, &placement));
-                if (maximized) ShowWindow(host, SW_MAXIMIZE);
-                if (full) {
-                    boolean success = false;
-                    CHECK(SUCCEEDED(view3->TryEnterFullScreenMode(&success)) && success);
-                    CHECK(SUCCEEDED(view3->get_IsFullScreenMode(&fullscreen)) && fullscreen);
-                    CHECK((GetWindowLongPtrW(host, GWL_STYLE) & WS_OVERLAPPEDWINDOW) == 0);
-                } else {
-                    // Minimized is transient; remember the previous normal/maximized state.
-                    ShowWindow(host, SW_MINIMIZE);
-                }
-            } else if (action == L"read" || action == L"manual") {
-                CHECK(!IsIconic(host));
-                CHECK(static_cast<bool>(fullscreen) == full);
-                CHECK(SUCCEEDED(window->Activate())); // Re-activation preserves the restored state.
-                if (full) {
-                    RECT rect{};
-                    GetWindowRect(host, &rect);
-                    MONITORINFO monitor{sizeof(MONITORINFO)};
-                    CHECK(GetMonitorInfoW(MonitorFromWindow(host, MONITOR_DEFAULTTONEAREST), &monitor));
-                    CHECK(EqualRect(&rect, &monitor.rcMonitor));
-                    // F11 exits and returns to the pre-fullscreen placement.
-                    SendMessageW(host, WM_KEYDOWN, VK_F11, 0);
-                    CHECK(SUCCEEDED(view3->get_IsFullScreenMode(&fullscreen)) && !fullscreen);
-                }
-                // The single saved mode does not retain a pre-fullscreen
-                // maximized mode across restarts; fullscreen exits to windowed.
-                CHECK((IsZoomed(host) != FALSE) == (maximized && !full));
+    auto callback = Callback<IApplicationInitializationCallback>([&](IApplicationInitializationCallbackParams*)
+                                                                     -> HRESULT {
+        CHECK(SUCCEEDED(compose->CreateInstance(nullptr, nullptr, &app)));
+        ComPtr<IActivationFactory> windowFactory, viewFactory;
+        ComPtr<IWindowStatics> windows;
+        ComPtr<IWindow> window;
+        ComPtr<IApplicationViewStatics2> views;
+        ComPtr<IApplicationView> view;
+        ComPtr<IApplicationView3> view3;
+        CHECK(SUCCEEDED(get(HStringReference(L"Windows.UI.Xaml.Window").Get(), &windowFactory)));
+        CHECK(SUCCEEDED(windowFactory.As(&windows)));
+        CHECK(SUCCEEDED(windows->get_Current(&window)));
+        CHECK(SUCCEEDED(get(HStringReference(L"Windows.UI.ViewManagement.ApplicationView").Get(), &viewFactory)));
+        CHECK(SUCCEEDED(viewFactory.As(&views)));
+        CHECK(SUCCEEDED(views->GetForCurrentView(&view)));
+        CHECK(SUCCEEDED(view.As(&view3)));
+        auto* host = TestWindow();
+        CHECK(host);
+        CHECK(!IsWindowVisible(host)); // Restore must not show the host during construction.
+        CHECK(SUCCEEDED(window->Activate()));
+        boolean fullscreen = false;
+        CHECK(SUCCEEDED(view3->get_IsFullScreenMode(&fullscreen)));
+        if (action == L"write") {
+            CHECK(SUCCEEDED(view3->ExitFullScreenMode()));
+            ShowWindow(host, SW_RESTORE);
+            WINDOWPLACEMENT placement{sizeof(WINDOWPLACEMENT)};
+            GetWindowPlacement(host, &placement);
+            RECT outer{0, 0, 640, 480};
+            CHECK(AdjustWindowRectEx(&outer, static_cast<DWORD>(GetWindowLongPtrW(host, GWL_STYLE)), FALSE,
+                                     static_cast<DWORD>(GetWindowLongPtrW(host, GWL_EXSTYLE))));
+            placement.rcNormalPosition = {80, 90, 80 + outer.right - outer.left, 90 + outer.bottom - outer.top};
+            placement.showCmd = SW_SHOWNORMAL;
+            placement.flags = 0;
+            CHECK(SetWindowPlacement(host, &placement));
+            if (maximized) ShowWindow(host, SW_MAXIMIZE);
+            if (full) {
+                boolean success = false;
+                CHECK(SUCCEEDED(view3->TryEnterFullScreenMode(&success)) && success);
+                CHECK(SUCCEEDED(view3->get_IsFullScreenMode(&fullscreen)) && fullscreen);
+                CHECK((GetWindowLongPtrW(host, GWL_STYLE) & WS_OVERLAPPEDWINDOW) == 0);
+            } else {
+                // Minimized is transient; remember the previous normal/maximized state.
+                ShowWindow(host, SW_MINIMIZE);
+            }
+        } else if (action == L"read" || action == L"manual") {
+            CHECK(!IsIconic(host));
+            CHECK(static_cast<bool>(fullscreen) == full);
+            CHECK(SUCCEEDED(window->Activate())); // Re-activation preserves the restored state.
+            if (full) {
+                RECT rect{};
+                GetWindowRect(host, &rect);
+                MONITORINFO monitor{sizeof(MONITORINFO)};
+                CHECK(GetMonitorInfoW(MonitorFromWindow(host, MONITOR_DEFAULTTONEAREST), &monitor));
+                CHECK(EqualRect(&rect, &monitor.rcMonitor));
+                // F11 exits and returns to the pre-fullscreen placement.
+                SendMessageW(host, WM_KEYDOWN, VK_F11, 0);
+                CHECK(SUCCEEDED(view3->get_IsFullScreenMode(&fullscreen)) && !fullscreen);
+            }
+            // The single saved mode does not retain a pre-fullscreen
+            // maximized mode across restarts; fullscreen exits to windowed.
+            CHECK((IsZoomed(host) != FALSE) == (maximized && !full));
+            WINDOWPLACEMENT placement{sizeof(WINDOWPLACEMENT)};
+            CHECK(GetWindowPlacement(host, &placement));
+            const bool wasMaximized = IsZoomed(host) != FALSE;
+            ShowWindow(host, SW_RESTORE);
+            RECT client{};
+            CHECK(GetClientRect(host, &client));
+            CHECK(client.right == 640 && client.bottom == 480);
+            if (wasMaximized) ShowWindow(host, SW_MAXIMIZE);
+            CHECK(placement.rcNormalPosition.left == 80 && placement.rcNormalPosition.top == 90);
+            // Alt+Enter toggles both ways; autorepeat does not toggle again.
+            SendMessageW(host, WM_SYSKEYDOWN, VK_RETURN, 1L << 29);
+            CHECK(SUCCEEDED(view3->get_IsFullScreenMode(&fullscreen)) && fullscreen);
+            SendMessageW(host, WM_SYSKEYDOWN, VK_RETURN, (1L << 29) | (1L << 30));
+            CHECK(SUCCEEDED(view3->get_IsFullScreenMode(&fullscreen)) && fullscreen);
+            SendMessageW(host, WM_SYSKEYDOWN, VK_RETURN, 1L << 29);
+            CHECK(SUCCEEDED(view3->get_IsFullScreenMode(&fullscreen)) && !fullscreen);
+            CHECK((IsZoomed(host) != FALSE) == (maximized && !full));
+        } else {
+            CHECK(!fullscreen && !IsIconic(host) && !IsZoomed(host));
+            if (clamped) {
+                RECT rect{}, client{};
+                GetWindowRect(host, &rect);
+                MONITORINFO monitor{sizeof(MONITORINFO)};
+                CHECK(GetMonitorInfoW(MonitorFromWindow(host, MONITOR_DEFAULTTONEAREST), &monitor));
+                CHECK(rect.left >= monitor.rcWork.left && rect.top >= monitor.rcWork.top);
+                CHECK(rect.right <= monitor.rcWork.right && rect.bottom <= monitor.rcWork.bottom);
+                CHECK(GetClientRect(host, &client));
                 WINDOWPLACEMENT placement{sizeof(WINDOWPLACEMENT)};
                 CHECK(GetWindowPlacement(host, &placement));
-                const bool wasMaximized = IsZoomed(host) != FALSE;
-                ShowWindow(host, SW_RESTORE);
-                RECT client{};
-                CHECK(GetClientRect(host, &client));
-                CHECK(client.right == 640 && client.bottom == 480);
-                if (wasMaximized) ShowWindow(host, SW_MAXIMIZE);
-                CHECK(placement.rcNormalPosition.left == 80 && placement.rcNormalPosition.top == 90);
-                // Alt+Enter toggles both ways; autorepeat does not toggle again.
-                SendMessageW(host, WM_SYSKEYDOWN, VK_RETURN, 1L << 29);
-                CHECK(SUCCEEDED(view3->get_IsFullScreenMode(&fullscreen)) && fullscreen);
-                SendMessageW(host, WM_SYSKEYDOWN, VK_RETURN, (1L << 29) | (1L << 30));
-                CHECK(SUCCEEDED(view3->get_IsFullScreenMode(&fullscreen)) && fullscreen);
-                SendMessageW(host, WM_SYSKEYDOWN, VK_RETURN, 1L << 29);
-                CHECK(SUCCEEDED(view3->get_IsFullScreenMode(&fullscreen)) && !fullscreen);
-                CHECK((IsZoomed(host) != FALSE) == (maximized && !full));
+                // Repairs must reach the INI on activation, without waiting for close.
+                CHECK(static_cast<LONG>(GetPrivateProfileIntW(L"window", L"X", -1, file.c_str())) ==
+                      placement.rcNormalPosition.left);
+                CHECK(static_cast<LONG>(GetPrivateProfileIntW(L"window", L"Y", -1, file.c_str())) ==
+                      placement.rcNormalPosition.top);
+                CHECK(GetPrivateProfileIntW(L"window", L"Width", 0, file.c_str()) == static_cast<UINT>(client.right));
+                CHECK(GetPrivateProfileIntW(L"window", L"Height", 0, file.c_str()) == static_cast<UINT>(client.bottom));
             } else {
-                CHECK(!fullscreen && !IsIconic(host) && !IsZoomed(host));
-                if (clamped) {
-                    RECT rect{}, client{};
-                    GetWindowRect(host, &rect);
-                    MONITORINFO monitor{sizeof(MONITORINFO)};
-                    CHECK(GetMonitorInfoW(MonitorFromWindow(host, MONITOR_DEFAULTTONEAREST), &monitor));
-                    CHECK(rect.left >= monitor.rcWork.left && rect.top >= monitor.rcWork.top);
-                    CHECK(rect.right <= monitor.rcWork.right && rect.bottom <= monitor.rcWork.bottom);
-                    CHECK(GetClientRect(host, &client));
-                    WINDOWPLACEMENT placement{sizeof(WINDOWPLACEMENT)};
-                    CHECK(GetWindowPlacement(host, &placement));
-                    // Repairs must reach the INI on activation, without waiting for close.
-                    CHECK(static_cast<LONG>(GetPrivateProfileIntW(L"window", L"X", -1, file.c_str())) ==
-                          placement.rcNormalPosition.left);
-                    CHECK(static_cast<LONG>(GetPrivateProfileIntW(L"window", L"Y", -1, file.c_str())) ==
-                          placement.rcNormalPosition.top);
-                    CHECK(GetPrivateProfileIntW(L"window", L"Width", 0, file.c_str()) ==
-                          static_cast<UINT>(client.right));
-                    CHECK(GetPrivateProfileIntW(L"window", L"Height", 0, file.c_str()) ==
-                          static_cast<UINT>(client.bottom));
-                } else {
-                    RECT client{};
-                    GetClientRect(host, &client);
-                    CHECK(client.right == 1024 && client.bottom == 768);
-                }
+                RECT client{};
+                GetClientRect(host, &client);
+                CHECK(client.right == 1024 && client.bottom == 768);
+                CHECK(GetPrivateProfileIntW(L"window", L"Width", 0, file.c_str()) == static_cast<UINT>(client.right));
+                CHECK(GetPrivateProfileIntW(L"window", L"Height", 0, file.c_str()) == static_cast<UINT>(client.bottom));
             }
-            PostQuitMessage(0);
-            return S_OK;
-        });
+        }
+        // Every launch rewrites known settings to valid, canonical values,
+        // including corrupt input, before the application closes.
+        wchar_t savedState[64]{};
+        GetPrivateProfileStringW(L"window", L"State", L"", savedState, ARRAYSIZE(savedState), file.c_str());
+        CHECK(wcscmp(savedState, L"windowed") == 0 || wcscmp(savedState, L"maximized") == 0 ||
+              wcscmp(savedState, L"fullscreen") == 0);
+        if (action == L"invalid") CHECK(wcscmp(savedState, L"windowed") == 0);
+        CHECK(GetPrivateProfileIntW(L"window", L"Width", 0, file.c_str()) > 0);
+        CHECK(GetPrivateProfileIntW(L"window", L"Height", 0, file.c_str()) > 0);
+        PostQuitMessage(0);
+        return S_OK;
+    });
     CHECK(SUCCEEDED(statics->Start(callback.Get())));
     CHECK(std::filesystem::exists(file));
     const auto read = [&](const wchar_t* key) {
         return static_cast<LONG>(GetPrivateProfileIntW(L"window", key, -1, file.c_str()));
     };
     const LONG x = read(L"X"), y = read(L"Y"), width = read(L"Width"), height = read(L"Height");
-    const LONG state = read(L"State");
-    CHECK(width > 0 && height > 0 && state >= 0 && state <= 2);
+    wchar_t state[64]{};
+    GetPrivateProfileStringW(L"window", L"State", L"", state, ARRAYSIZE(state), file.c_str());
+    CHECK(width > 0 && height > 0);
+    CHECK(wcscmp(state, L"windowed") == 0 || wcscmp(state, L"maximized") == 0 || wcscmp(state, L"fullscreen") == 0);
     if (action == L"write") {
         CHECK(x == 80 && y == 90 && width == 640 && height == 480);
-        CHECK(state == (full ? 2 : maximized ? 1 : 0));
+        CHECK(wcscmp(state, full ? L"fullscreen" : maximized ? L"maximized" : L"windowed") == 0);
     }
     printf("windowtest: %ls %ls; %d failure(s)\n", action.c_str(), mode.c_str(), failures);
     return failures ? 1 : 0;

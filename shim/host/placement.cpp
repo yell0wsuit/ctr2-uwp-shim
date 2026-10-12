@@ -22,9 +22,10 @@ void CreateSettingsFile(const std::wstring& path) {
                              "; Examples: Width=1280 Height=720; Width=1366 Height=768; Width=1600 Height=900.\r\n"
                              "; X/Y specify window position in workspace coordinates.\r\n"
                              "; Unsafe positions/sizes are clamped to the monitor work area and saved back.\r\n"
-                             "; State: 0=windowed, 1=maximized, 2=fullscreen.\r\n"
+                             "; State: windowed, maximized, or fullscreen.\r\n"
                              "; Maximized/fullscreen retain Width/Height for returning to a normal window.\r\n"
                              "; After restarting in fullscreen, exiting returns to windowed mode.\r\n"
+                             "; Invalid settings reset to safe defaults and are overwritten on opening.\r\n"
                              "; Toggle fullscreen with F11 or Alt+Enter.\r\n"
                              "; Delete this file with the game closed to reset settings.\r\n\r\n";
     DWORD written{};
@@ -81,23 +82,27 @@ void WindowPlacement::Initialize(HWND window) {
             wchar_t extra{};
             return swscanf_s(value, L"%lld %lc", &result, &extra, 1u) == 1;
         };
-        LONGLONG x = 0, y = 0, width = 0, height = 0, state = 0;
+        LONGLONG x = 0, y = 0, width = 0, height = 0;
+        wchar_t state[64]{};
+        GetPrivateProfileStringW(L"window", L"State", L"windowed", state, ARRAYSIZE(state), path_.c_str());
+        const bool maximized = _wcsicmp(state, L"maximized") == 0;
+        const bool fullscreen = _wcsicmp(state, L"fullscreen") == 0;
+        const bool validState = maximized || fullscreen || _wcsicmp(state, L"windowed") == 0;
         const auto frame = FrameSize();
         const auto& rect = normal_.rcNormalPosition;
         if (read(L"X", rect.left, x) && read(L"Y", rect.top, y) &&
             read(L"Width", rect.right - rect.left - frame.cx, width) &&
-            read(L"Height", rect.bottom - rect.top - frame.cy, height) && read(L"State", 0, state) && x >= -100000 &&
-            x <= 100000 && y >= -100000 && y <= 100000 && width > 0 && width <= 100000 && height > 0 &&
-            height <= 100000 && x + width + frame.cx <= 100000 && y + height + frame.cy <= 100000 && state >= 0 &&
-            state <= 2) {
+            read(L"Height", rect.bottom - rect.top - frame.cy, height) && validState && x >= -100000 && x <= 100000 &&
+            y >= -100000 && y <= 100000 && width > 0 && width <= 100000 && height > 0 && height <= 100000 &&
+            x + width + frame.cx <= 100000 && y + height + frame.cy <= 100000) {
             normal_.rcNormalPosition = {
                 static_cast<LONG>(x),
                 static_cast<LONG>(y),
                 static_cast<LONG>(x + width + frame.cx),
                 static_cast<LONG>(y + height + frame.cy),
             };
-            normal_.showCmd = state == 1 ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
-            restoreFullscreen = state == 2;
+            normal_.showCmd = maximized ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
+            restoreFullscreen = fullscreen;
         }
     }
     FitMonitor();
@@ -187,11 +192,16 @@ void WindowPlacement::Save() {
     }
     const auto& rect = normal_.rcNormalPosition;
     const auto frame = FrameSize();
-    const LONG state = fullscreen_ ? 2 : normal_.showCmd == SW_SHOWMAXIMIZED ? 1 : 0;
+    const wchar_t* state = fullscreen_                           ? L"fullscreen"
+                           : normal_.showCmd == SW_SHOWMAXIMIZED ? L"maximized"
+                                                                 : L"windowed";
     const LONG values[] = {
-        rect.left, rect.top, rect.right - rect.left - frame.cx, rect.bottom - rect.top - frame.cy, state,
+        rect.left,
+        rect.top,
+        rect.right - rect.left - frame.cx,
+        rect.bottom - rect.top - frame.cy,
     };
-    const wchar_t* keys[] = {L"X", L"Y", L"Width", L"Height", L"State"};
+    const wchar_t* keys[] = {L"X", L"Y", L"Width", L"Height"};
     CreateSettingsFile(path_);
     for (size_t i = 0; i < ARRAYSIZE(values); ++i) {
         wchar_t value[64]{};
@@ -199,6 +209,8 @@ void WindowPlacement::Save() {
         if (!WritePrivateProfileStringW(L"window", keys[i], value, path_.c_str()))
             Log("FAIL", "saving window settings error=%lu", GetLastError());
     }
+    if (!WritePrivateProfileStringW(L"window", L"State", state, path_.c_str()))
+        Log("FAIL", "saving window state error=%lu", GetLastError());
 }
 void WindowPlacement::OnMessage(UINT message, WPARAM wparam) {
     if (!window_) return;
