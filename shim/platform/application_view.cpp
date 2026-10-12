@@ -106,19 +106,21 @@ public:
         *v = boundsMode_;
         return S_OK;
     }
-    // The host currently provides a resizable desktop window. Decline fullscreen
-    // requests until a matching Win32 style/monitor transition is implemented.
     HRESULT STDMETHODCALLTYPE get_IsFullScreenMode(boolean* v) override {
         if (!v) return E_POINTER;
-        *v = false;
+        *v = IsHostFullscreen();
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE TryEnterFullScreenMode(boolean* success) override {
         if (!success) return E_POINTER;
         *success = false;
+        if (!HostWindow()) return S_OK;
+        auto hr = SetHostFullscreen(true);
+        if (FAILED(hr)) return hr;
+        *success = true;
         return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE ExitFullScreenMode() override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE ExitFullScreenMode() override { return HostWindow() ? SetHostFullscreen(false) : S_OK; }
 };
 class ViewFactory final : public Factory<DefaultIApplicationViewStatics, DefaultIApplicationViewStatics2> {
     ComPtr<View> view_ = Make<View>();

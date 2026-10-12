@@ -81,7 +81,7 @@ public:
     HRESULT STDMETHODCALLTYPE Activate() override {
         if (!HostWindow()) return E_ILLEGAL_METHOD_CALL;
         Log("TRACE", "Window Activate begin");
-        ShowWindow(HostWindow(), SW_SHOW);
+        ActivateHostWindow();
         UpdateWindow(HostWindow());
         Log("TRACE", "Window Activate returned");
         return QueueElementLoaded(content_.Get());

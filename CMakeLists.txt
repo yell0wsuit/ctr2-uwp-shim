@@ -17,7 +17,7 @@ add_link_options(/DEBUG /INCREMENTAL:NO)
 add_executable(shimtest tests/shimtest.cpp)
 target_link_libraries(shimtest PRIVATE runtimeobject ole32)
 if(EXISTS "${CMAKE_SOURCE_DIR}/shim/registry.cpp")
-  add_library(ctr2shim SHARED shim/registry.cpp shim/log.cpp shim/options.cpp shim/gpu/dxgi_redirect.cpp shim/entry/iat_hook.cpp shim/entry/diagnostics.cpp shim/platform/threading.cpp shim/platform/hardware.cpp shim/platform/device_info.cpp shim/platform/data_reader.cpp shim/platform/application_view.cpp shim/platform/cursor.cpp shim/platform/visualization.cpp shim/platform/storage.cpp shim/platform/settings.cpp shim/stubs/vungle.cpp shim/stubs/store.cpp shim/stubs/notifications.cpp shim/stubs/xml.cpp shim/stubs/http.cpp shim/platform/display.cpp shim/platform/coreapp.cpp shim/platform/causality.cpp shim/platform/calendar.cpp shim/host/host.cpp shim/host/pointer.cpp shim/host/dispatcher.cpp shim/host/corewindow.cpp shim/xaml/application.cpp shim/xaml/controls.cpp shim/xaml/media.cpp shim/xaml/timer.cpp shim/xaml/window.cpp shim/ctr2shim.def)
+  add_library(ctr2shim SHARED shim/registry.cpp shim/log.cpp shim/options.cpp shim/gpu/dxgi_redirect.cpp shim/entry/iat_hook.cpp shim/entry/diagnostics.cpp shim/platform/threading.cpp shim/platform/hardware.cpp shim/platform/device_info.cpp shim/platform/data_reader.cpp shim/platform/application_view.cpp shim/platform/cursor.cpp shim/platform/visualization.cpp shim/platform/storage.cpp shim/platform/settings.cpp shim/stubs/vungle.cpp shim/stubs/store.cpp shim/stubs/notifications.cpp shim/stubs/xml.cpp shim/stubs/http.cpp shim/platform/display.cpp shim/platform/coreapp.cpp shim/platform/causality.cpp shim/platform/calendar.cpp shim/host/host.cpp shim/host/placement.cpp shim/host/pointer.cpp shim/host/dispatcher.cpp shim/host/corewindow.cpp shim/xaml/application.cpp shim/xaml/controls.cpp shim/xaml/media.cpp shim/xaml/timer.cpp shim/xaml/window.cpp shim/ctr2shim.def)
   target_include_directories(ctr2shim PRIVATE shim)
   target_link_libraries(ctr2shim PRIVATE runtimeobject ole32 dxgi shell32 shlwapi)
   add_library(d3dcompiler_47 SHARED proxy/d3dcompiler_47/proxy.cpp proxy/d3dcompiler_47/thunks.cpp proxy/d3dcompiler_47/proxy.def)
@@ -95,7 +95,7 @@ add_test(NAME logging_trace COMMAND optionstest --trace)
 set_tests_properties(logging_off logging_on logging_trace PROPERTIES RESOURCE_LOCK ctr2_log_file)
 # Tests keep saves in the build tree, never in the player's save folder.
 get_property(ctr2_tests DIRECTORY PROPERTY TESTS)
-set_tests_properties(${ctr2_tests} PROPERTIES ENVIRONMENT "CTR2SHIM_DATA=${CMAKE_BINARY_DIR}/test-data")
+set_tests_properties(${ctr2_tests} PROPERTIES ENVIRONMENT "CTR2SHIM_DATA=${CMAKE_BINARY_DIR}/test-data;CTR2SHIM_WINDOW_STATE=off")
 # Save-location tests resolve the folder themselves, as the game does.
 add_test(NAME storage_location COMMAND storagetest location)
 add_test(NAME storage_location_ini COMMAND storagetest location_ini)
@@ -103,3 +103,21 @@ set_tests_properties(storage_location storage_location_ini PROPERTIES
   ENVIRONMENT "LOCALAPPDATA=${CMAKE_BINARY_DIR}/test-localappdata"
   ENVIRONMENT_MODIFICATION "CTR2SHIM_DATA=unset:"
   RESOURCE_LOCK ctr2_save_location)
+add_executable(windowtest tests/windowtest.cpp)
+target_link_libraries(windowtest PRIVATE runtimeobject ole32 user32)
+foreach(mode normal max full maxfull)
+  add_test(NAME window_${mode}_write COMMAND windowtest write ${mode})
+  add_test(NAME window_${mode}_read COMMAND windowtest read ${mode})
+  set_tests_properties(window_${mode}_write PROPERTIES FIXTURES_SETUP window_${mode})
+  set_tests_properties(window_${mode}_read PROPERTIES FIXTURES_REQUIRED window_${mode})
+  set_tests_properties(window_${mode}_write window_${mode}_read PROPERTIES
+    ENVIRONMENT "CTR2SHIM_DATA=${CMAKE_BINARY_DIR}/window-test-data/${mode}"
+    ENVIRONMENT_MODIFICATION "CTR2SHIM_WINDOW_STATE=unset:"
+    RESOURCE_LOCK ctr2_window_${mode} TIMEOUT 15)
+endforeach()
+foreach(mode corrupt offscreen overflow)
+  add_test(NAME window_${mode} COMMAND windowtest invalid ${mode})
+  set_tests_properties(window_${mode} PROPERTIES
+    ENVIRONMENT "CTR2SHIM_DATA=${CMAKE_BINARY_DIR}/window-test-data/${mode}"
+    ENVIRONMENT_MODIFICATION "CTR2SHIM_WINDOW_STATE=unset:" TIMEOUT 15)
+endforeach()

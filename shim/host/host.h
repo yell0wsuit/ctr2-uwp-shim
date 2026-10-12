@@ -7,6 +7,9 @@ HWND HostWindow() noexcept;
 // for one redirected swap chain. Closing it (WM_CLOSE) destroys it.
 HWND CreateSurfaceWindow() noexcept;
 DWORD HostThread() noexcept;
+void ActivateHostWindow();
+bool IsHostFullscreen() noexcept;
+HRESULT SetHostFullscreen(bool value);
 HRESULT PostHostWork(int priority, std::function<void()> work);
 HRESULT RunHost(const std::function<HRESULT()>& initialize);
 }

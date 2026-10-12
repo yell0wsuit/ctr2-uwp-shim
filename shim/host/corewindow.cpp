@@ -261,7 +261,7 @@ public:
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE Activate() override {
-        ShowWindow(HostWindow(), SW_SHOW);
+        ActivateHostWindow();
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE Close() override {

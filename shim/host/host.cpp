@@ -1,5 +1,6 @@
 #include "host.h"
 #include "pointer.h"
+#include "placement.h"
 #include "gpu/dxgi_redirect.h"
 #include "log.h"
 #include <mutex>
@@ -16,6 +17,9 @@ static std::mutex queueMutex;
 static std::map<int, std::deque<std::function<void()>>, std::greater<int>> queue;
 static constexpr UINT WorkMessage = WM_APP + 1;
 static constexpr UINT CreateSurfaceMessage = WM_APP + 2;
+static constexpr UINT FullscreenMessage = WM_APP + 3;
+static constexpr UINT ActivateMessage = WM_APP + 4;
+static WindowPlacement placement;
 static constexpr wchar_t SurfaceClass[] = L"CTR2ShimSurface";
 // Composition swap chains are independent layers, and the game creates its
 // next one (on resize) before releasing the old. A window holds one flip-model
@@ -52,6 +56,13 @@ HRESULT PostHostWork(int priority, std::function<void()> work) {
 }
 HWND HostWindow() noexcept { return window; }
 DWORD HostThread() noexcept { return thread; }
+void ActivateHostWindow() {
+    if (window) SendMessageW(window, ActivateMessage, 0, 0);
+}
+bool IsHostFullscreen() noexcept { return placement.IsFullscreen(); }
+HRESULT SetHostFullscreen(bool value) {
+    return window ? static_cast<HRESULT>(SendMessageW(window, FullscreenMessage, value, 0)) : RO_E_CLOSED;
+}
 // The game tears down its renderer on every Deactivated and rebuilds it, behind
 // a "Loading" screen, on the next activation. That suited full-screen Windows
 // 8.1, where losing focus meant switching away; a desktop window loses focus
@@ -81,6 +92,17 @@ static void ForwardWindowMessage(UINT message, WPARAM wparam, LPARAM lparam) {
 }
 static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
     PointerHostMessage(message, wparam, lparam);
+    placement.OnMessage(message, wparam);
+    if (message == FullscreenMessage) return placement.SetFullscreen(wparam != 0);
+    if (message == ActivateMessage) {
+        placement.Activate();
+        return 0;
+    }
+    if ((message == WM_KEYDOWN && wparam == VK_F11) ||
+        (message == WM_SYSKEYDOWN && wparam == VK_RETURN && (lparam & (1L << 29)))) {
+        if (!(lparam & (1L << 30))) placement.SetFullscreen(!placement.IsFullscreen());
+        return 0;
+    }
     if (message == CreateSurfaceMessage) return reinterpret_cast<LRESULT>(CreateSurfaceOnHostThread());
     if (message == WM_SIZE && wparam != SIZE_MINIMIZED) {
         // Surfaces fill the client area; DXGI stretches each buffer to its window.
@@ -160,6 +182,7 @@ HRESULT RunHost(const std::function<HRESULT()>& initialize) {
                              CW_USEDEFAULT, CW_USEDEFAULT, rect.right - rect.left, rect.bottom - rect.top, nullptr,
                              nullptr, cls.hInstance, nullptr);
     if (!window) return HRESULT_FROM_WIN32(GetLastError());
+    placement.Initialize(window);
     HRESULT hr = InitializeGraphicsRedirect();
     if (FAILED(hr)) Log("FAIL", "DXGI redirect initialization hr=%08lx", hr);
     if (SUCCEEDED(hr)) hr = initialize();
