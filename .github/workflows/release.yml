@@ -3,6 +3,15 @@ name: Publish DLL release
 on:
     push:
         branches: [main]
+        paths:
+            - 'shim/**'
+            - 'proxy/**'
+            - 'cmake/**'
+            - 'tests/**'
+            - 'scripts/**'
+            - 'CMakeLists.txt'
+            - 'CMakePresets.json'
+            - '.github/workflows/release.yml'
     workflow_dispatch:
 
 permissions:
