@@ -67,4 +67,6 @@ for name in ['ctr2shim.dll', 'd3dcompiler_47.dll'] + optional:
 COPY_SHIMS
 cmp -s "$source_dir/Game.exe" "$destination/Game.exe"
 shasum -a 256 "$source_dir/Game.exe" "$destination/Game.exe"
+[[ -f "$destination/wined3d.dll" ]] ||
+  echo "No wined3d.dll in $build: under Wine on macOS the game draws a black screen. Build it with scripts/build-wined3d.sh '$build' and rerun setup." >&2
 printf 'Prepared %s\n' "$destination"

@@ -17,7 +17,11 @@ export MVK_CONFIG_LOG_LEVEL=${MVK_CONFIG_LOG_LEVEL:-0}
 overrides="d3dcompiler_47=n,b;msvcr120_app,msvcp120_app,vccorlib120_app=n"
 # The patched wined3d.dll from build-wined3d.sh, when staged: without it Wine
 # rejects every shader the game compiles and draws nothing.
-[[ ! -f "$game/wined3d.dll" ]] || overrides+=";wined3d=n"
+if [[ -f "$game/wined3d.dll" ]]; then
+  overrides+=";wined3d=n"
+else
+  echo 'No wined3d.dll beside Game.exe: expect a black screen. Build it with scripts/build-wined3d.sh and rerun setup.sh.' >&2
+fi
 export WINEDLLOVERRIDES="$overrides${WINEDLLOVERRIDES:+;$WINEDLLOVERRIDES}"
 wine=${WINE:-"$HOME/Applications/Wine Devel.app/Contents/Resources/wine/bin/wine"}
 [[ -x "$wine" ]] || { echo 'Set WINE to your Wine executable.' >&2; exit 1; }

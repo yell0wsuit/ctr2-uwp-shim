@@ -59,10 +59,13 @@ class SetupTests(unittest.TestCase):
             result = subprocess.run(setup, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr.decode())
             self.assertFalse((dest/'wined3d.dll').exists())
+            # Without it the game opens to a black screen under Wine on macOS.
+            self.assertIn(b'build-wined3d.sh', result.stderr)
             (build/'wined3d.dll').write_bytes(X86_PE + b'wined3d')
             result = subprocess.run(setup, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr.decode())
             self.assertEqual((dest/'wined3d.dll').read_bytes(), X86_PE + b'wined3d')
+            self.assertNotIn(b'build-wined3d.sh', result.stderr)
     def test_rejects_destination_inside_source_before_writing(self):
         with tempfile.TemporaryDirectory() as temp:
             base = pathlib.Path(temp); source = base/'source'; source.mkdir(); build = base/'build'; build.mkdir()
