@@ -1,0 +1,166 @@
+{
+  "controls.h": {
+    "header": "windows.ui.xaml.controls.h",
+    "interfaces": [
+      "ABI::Windows::UI::Xaml::Controls::IFrame",
+      "ABI::Windows::UI::Xaml::Controls::IFrameFactory",
+      "ABI::Windows::UI::Xaml::Controls::IPage",
+      "ABI::Windows::UI::Xaml::Controls::IPageFactory",
+      "ABI::Windows::UI::Xaml::Controls::IPageOverrides",
+      "ABI::Windows::UI::Xaml::Controls::IUserControl",
+      "ABI::Windows::UI::Xaml::Controls::IUserControlFactory",
+      "ABI::Windows::UI::Xaml::Controls::IContentControl",
+      "ABI::Windows::UI::Xaml::Controls::IControl",
+      "ABI::Windows::UI::Xaml::Controls::ISwapChainPanel",
+      "ABI::Windows::UI::Xaml::Controls::IGrid",
+      "ABI::Windows::UI::Xaml::Controls::IPanel"
+    ]
+  },
+  "coreapp.h": {
+    "header": "windows.applicationmodel.core.h",
+    "interfaces": [
+      "ABI::Windows::ApplicationModel::Core::ICoreApplication",
+      "ABI::Windows::ApplicationModel::Core::ICoreApplicationExit",
+      "ABI::Windows::ApplicationModel::Core::ICoreImmersiveApplication",
+      "ABI::Windows::ApplicationModel::Core::ICoreApplicationView"
+    ]
+  },
+  "device_info.h": {
+    "header": "windows.security.exchangeactivesyncprovisioning.h",
+    "interfaces": [
+      "ABI::Windows::Security::ExchangeActiveSyncProvisioning::IEasClientDeviceInformation"
+    ]
+  },
+  "display.h": {
+    "header": "windows.graphics.display.h",
+    "interfaces": [
+      "ABI::Windows::Graphics::Display::IDisplayInformation",
+      "ABI::Windows::Graphics::Display::IDisplayInformationStatics",
+      "ABI::Windows::Graphics::Display::IDisplayPropertiesStatics"
+    ]
+  },
+  "display_request.h": {
+    "header": "windows.system.display.h",
+    "interfaces": [
+      "ABI::Windows::System::Display::IDisplayRequest"
+    ]
+  },
+  "globalization.h": {
+    "header": "windows.globalization.h",
+    "interfaces": [
+      "ABI::Windows::Globalization::ICalendar"
+    ]
+  },
+  "http.h": {
+    "header": "windows.web.http.h",
+    "interfaces": [
+      "ABI::Windows::Web::Http::IHttpClient",
+      "ABI::Windows::Web::Http::IHttpClientFactory"
+    ]
+  },
+  "http_filters.h": {
+    "header": "windows.web.http.filters.h",
+    "interfaces": [
+      "ABI::Windows::Web::Http::Filters::IHttpBaseProtocolFilter",
+      "ABI::Windows::Web::Http::Filters::IHttpCacheControl",
+      "ABI::Windows::Web::Http::Filters::IHttpFilter"
+    ]
+  },
+  "network.h": {
+    "header": "windows.networking.connectivity.h",
+    "interfaces": [
+      "ABI::Windows::Networking::Connectivity::INetworkInformationStatics"
+    ]
+  },
+  "notifications.h": {
+    "header": "windows.ui.notifications.h",
+    "interfaces": [
+      "ABI::Windows::UI::Notifications::IToastNotifier",
+      "ABI::Windows::UI::Notifications::IToastNotificationManagerStatics",
+      "ABI::Windows::UI::Notifications::IScheduledToastNotification",
+      "ABI::Windows::UI::Notifications::IScheduledToastNotificationFactory"
+    ]
+  },
+  "pointer.h": {
+    "header": "windows.ui.input.h",
+    "interfaces": [
+      "ABI::Windows::UI::Input::IPointerPoint",
+      "ABI::Windows::UI::Input::IPointerPointProperties"
+    ]
+  },
+  "pointer_args.h": {
+    "header": "windows.ui.xaml.input.h",
+    "interfaces": [
+      "ABI::Windows::UI::Xaml::Input::IPointerRoutedEventArgs"
+    ]
+  },
+  "storage.h": {
+    "header": "windows.storage.h",
+    "interfaces": [
+      "ABI::Windows::Storage::IApplicationData",
+      "ABI::Windows::Storage::IStorageFolder",
+      "ABI::Windows::Storage::IStorageItem",
+      "ABI::Windows::Storage::IApplicationDataContainer"
+    ]
+  },
+  "store.h": {
+    "header": "windows.applicationmodel.store.h",
+    "interfaces": [
+      "ABI::Windows::ApplicationModel::Store::ICurrentApp",
+      "ABI::Windows::ApplicationModel::Store::ICurrentAppWithConsumables",
+      "ABI::Windows::ApplicationModel::Store::ILicenseInformation"
+    ]
+  },
+  "streams.h": {
+    "header": "windows.storage.streams.h",
+    "interfaces": [
+      "ABI::Windows::Storage::Streams::IDataReader"
+    ]
+  },
+  "uicore.h": {
+    "header": "windows.ui.core.h",
+    "interfaces": [
+      "ABI::Windows::UI::Core::ICoreWindow",
+      "ABI::Windows::UI::Core::ICoreDispatcher"
+    ]
+  },
+  "viewmanagement.h": {
+    "header": "windows.ui.viewmanagement.h",
+    "interfaces": [
+      "ABI::Windows::UI::ViewManagement::IApplicationView",
+      "ABI::Windows::UI::ViewManagement::IApplicationView2",
+      "ABI::Windows::UI::ViewManagement::IApplicationView3",
+      "ABI::Windows::UI::ViewManagement::IApplicationViewStatics",
+      "ABI::Windows::UI::ViewManagement::IApplicationViewStatics2"
+    ]
+  },
+  "xaml.h": {
+    "header": "windows.ui.xaml.h",
+    "interfaces": [
+      "ABI::Windows::UI::Xaml::IApplication",
+      "ABI::Windows::UI::Xaml::IApplicationFactory",
+      "ABI::Windows::UI::Xaml::IApplicationStatics",
+      "ABI::Windows::UI::Xaml::IApplicationOverrides",
+      "ABI::Windows::UI::Xaml::IWindow",
+      "ABI::Windows::UI::Xaml::IWindowStatics",
+      "ABI::Windows::UI::Xaml::IFrameworkElement",
+      "ABI::Windows::UI::Xaml::IUIElement",
+      "ABI::Windows::UI::Xaml::IDependencyObject",
+      "ABI::Windows::UI::Xaml::IDispatcherTimer",
+      "ABI::Windows::UI::Xaml::IDispatcherTimerFactory"
+    ]
+  },
+  "xml.h": {
+    "header": "windows.data.xml.dom.h",
+    "interfaces": [
+      "ABI::Windows::Data::Xml::Dom::IXmlDocument",
+      "ABI::Windows::Data::Xml::Dom::IXmlNode",
+      "ABI::Windows::Data::Xml::Dom::IXmlNodeSelector",
+      "ABI::Windows::Data::Xml::Dom::IXmlNodeSerializer",
+      "ABI::Windows::Data::Xml::Dom::IXmlElement",
+      "ABI::Windows::Data::Xml::Dom::IXmlText",
+      "ABI::Windows::Data::Xml::Dom::IXmlCharacterData",
+      "ABI::Windows::Data::Xml::Dom::IXmlNodeList"
+    ]
+  }
+}

@@ -1,0 +1,71 @@
+#include <windows.h>
+#include "log.h"
+#include <mutex>
+#include <intrin.h>
+namespace ctr2 {
+static void LogAngleError(EXCEPTION_POINTERS* fault) noexcept {
+    wchar_t enabled[4]{}; GetEnvironmentVariableW(L"CTR2SHIM_DIAGNOSTICS",enabled,4);
+    if(enabled[0]!=L'1' || fault->ExceptionRecord->NumberParameters<2) return;
+    wchar_t message[64]{}; SIZE_T read{};
+    ReadProcessMemory(GetCurrentProcess(),reinterpret_cast<void*>(fault->ExceptionRecord->ExceptionInformation[1]),message,sizeof(message)-sizeof(wchar_t),&read);
+    if(wcsncmp(message,L"eglMakeCurrent failed",21)!=0 && wcsncmp(message,L"eglSwapBuffers failed",21)!=0) return;
+    auto image=reinterpret_cast<BYTE*>(GetModuleHandleW(nullptr));
+    wchar_t path[MAX_PATH]{}; GetModuleFileNameW(nullptr,path,MAX_PATH);
+    auto name=wcsrchr(path,L'\\'); if(!name || _wcsicmp(name+1,L"Game.exe")!=0) return;
+    auto dos=reinterpret_cast<IMAGE_DOS_HEADER*>(image);
+    auto nt=reinterpret_cast<IMAGE_NT_HEADERS32*>(image+dos->e_lfanew);
+    // Diagnostic only, for the supported 1.0.0.46 executable's ANGLE TLS key.
+    if(nt->OptionalHeader.SizeOfImage<=0x5adde4) return;
+    DWORD index=TLS_OUT_OF_INDEXES;
+    if(!ReadProcessMemory(GetCurrentProcess(),image+0x5adde0,&index,sizeof(index),&read)) return;
+    DWORD previous=GetLastError(); auto storage=TlsGetValue(index); SetLastError(previous);
+    DWORD state[6]{};
+    if(ReadProcessMemory(GetCurrentProcess(),storage,state,sizeof(state),&read))
+        Log("TRACE","ANGLE error message=%ls key=%lu state=%p words=%08lx,%08lx,%08lx,%08lx,%08lx,%08lx",message,index,storage,state[0],state[1],state[2],state[3],state[4],state[5]);
+}
+void LogThreadStorage() noexcept {
+    wchar_t enabled[4]{};
+    GetEnvironmentVariableW(L"CTR2SHIM_DIAGNOSTICS",enabled,4);
+    if(enabled[0]!=L'1') return;
+    auto image=reinterpret_cast<BYTE*>(GetModuleHandleW(nullptr));
+    auto dos=reinterpret_cast<IMAGE_DOS_HEADER*>(image);
+    auto nt=reinterpret_cast<IMAGE_NT_HEADERS32*>(image+dos->e_lfanew);
+    auto directory=nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS];
+    if(!directory.VirtualAddress) return;
+    auto tls=reinterpret_cast<IMAGE_TLS_DIRECTORY32*>(image+directory.VirtualAddress);
+    DWORD index=0,blocks[8]{}; SIZE_T read{};
+    if(!ReadProcessMemory(GetCurrentProcess(),reinterpret_cast<void*>(tls->AddressOfIndex),&index,sizeof(index),&read)) return;
+    auto vector=__readfsdword(0x2c);
+    if(!ReadProcessMemory(GetCurrentProcess(),reinterpret_cast<void*>(vector),blocks,sizeof(blocks),&read)) return;
+    DWORD values[6]{};
+    ReadProcessMemory(GetCurrentProcess(),reinterpret_cast<void*>(blocks[0]),values,sizeof(values),&read);
+    Log("TRACE","thread storage gameIndex=%lu vector=%08lx slot0=%08lx gameBlock=%08lx slot0Words=%08lx,%08lx,%08lx,%08lx,%08lx,%08lx",index,vector,blocks[0],index<8?blocks[index]:0,values[0],values[1],values[2],values[3],values[4],values[5]);
+}
+static LONG CALLBACK LogFault(EXCEPTION_POINTERS* fault) {
+    if(fault->ExceptionRecord->ExceptionCode==0x4001000a) { LogAngleError(fault); return EXCEPTION_CONTINUE_SEARCH; }
+    if(fault->ExceptionRecord->ExceptionCode!=EXCEPTION_ACCESS_VIOLATION) return EXCEPTION_CONTINUE_SEARCH;
+    auto context=fault->ContextRecord;
+    LogThreadStorage();
+    HMODULE module{}; wchar_t path[MAX_PATH]{};
+    if(GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,reinterpret_cast<LPCWSTR>(context->Eip),&module)) { GetModuleFileNameW(module,path,MAX_PATH); Log("FAIL","fault module=%ls rva=%08lx",path,context->Eip-reinterpret_cast<DWORD>(module)); }
+    Log("FAIL","access violation ip=%08lx address=%08lx eax=%08lx ecx=%08lx edx=%08lx esp=%08lx ebp=%08lx",context->Eip,static_cast<DWORD>(fault->ExceptionRecord->ExceptionInformation[1]),context->Eax,context->Ecx,context->Edx,context->Esp,context->Ebp);
+    DWORD stack[32]{}; SIZE_T read{};
+    if(ReadProcessMemory(GetCurrentProcess(),reinterpret_cast<void*>(context->Esp),stack,sizeof(stack),&read)) {
+        for(unsigned i=0;i<32;++i) if(stack[i]>=0x400000 && stack[i]<0x9f0000) Log("FAIL","stack[%u]=%08lx",i,stack[i]);
+    }
+    DWORD frame=context->Ebp;
+    for(unsigned i=0;i<16 && frame;++i) {
+        DWORD words[6]{}; SIZE_T bytes{};
+        if(!ReadProcessMemory(GetCurrentProcess(),reinterpret_cast<void*>(frame),words,sizeof(words),&bytes) || bytes!=sizeof(words)) break;
+        Log("FAIL","frame[%u] ebp=%08lx return=%08lx args=%08lx,%08lx,%08lx,%08lx",i,frame,words[1],words[2],words[3],words[4],words[5]);
+        if(words[0]<=frame || words[0]-frame>0x100000) break;
+        frame=words[0];
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+void InitializeDiagnostics() {
+    wchar_t enabled[4]{}; GetEnvironmentVariableW(L"CTR2SHIM_DIAGNOSTICS",enabled,4);
+    if(enabled[0]!=L'1') return;
+    static std::once_flag once; std::call_once(once,[]{ AddVectoredExceptionHandler(1,LogFault); });
+}
+}

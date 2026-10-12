@@ -30,3 +30,13 @@
 *.exe
 *.out
 *.app
+
+# Project files
+.DS_Store
+/build/
+/.tools/
+/.sdk/
+/local/
+__pycache__/
+*.pyc
+*.log

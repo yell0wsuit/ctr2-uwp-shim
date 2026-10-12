@@ -1,0 +1,31 @@
+LIBRARY d3dcompiler_47
+EXPORTS
+  D3DAssemble=proxy_D3DAssemble @1
+  D3DCompile=proxy_D3DCompile @2
+  D3DCompile2=proxy_D3DCompile2 @3
+  D3DCompileFromFile=proxy_D3DCompileFromFile @4
+  D3DCompressShaders=proxy_D3DCompressShaders @5
+  D3DCreateBlob=proxy_D3DCreateBlob @6
+  D3DCreateFunctionLinkingGraph=proxy_D3DCreateFunctionLinkingGraph @7
+  D3DCreateLinker=proxy_D3DCreateLinker @8
+  D3DDecompressShaders=proxy_D3DDecompressShaders @9
+  D3DDisassemble=proxy_D3DDisassemble @10
+  D3DDisassemble10Effect=proxy_D3DDisassemble10Effect @11
+  D3DDisassemble11Trace=proxy_D3DDisassemble11Trace @12
+  D3DDisassembleRegion=proxy_D3DDisassembleRegion @13
+  D3DGetBlobPart=proxy_D3DGetBlobPart @14
+  D3DGetDebugInfo=proxy_D3DGetDebugInfo @15
+  D3DGetInputAndOutputSignatureBlob=proxy_D3DGetInputAndOutputSignatureBlob @16
+  D3DGetInputSignatureBlob=proxy_D3DGetInputSignatureBlob @17
+  D3DGetOutputSignatureBlob=proxy_D3DGetOutputSignatureBlob @18
+  D3DGetTraceInstructionOffsets=proxy_D3DGetTraceInstructionOffsets @19
+  D3DLoadModule=proxy_D3DLoadModule @20
+  D3DPreprocess=proxy_D3DPreprocess @21
+  D3DReadFileToBlob=proxy_D3DReadFileToBlob @22
+  D3DReflect=proxy_D3DReflect @23
+  D3DReflectLibrary=proxy_D3DReflectLibrary @24
+  D3DReturnFailure1=proxy_D3DReturnFailure1 @25
+  D3DSetBlobPart=proxy_D3DSetBlobPart @26
+  D3DStripShader=proxy_D3DStripShader @27
+  D3DWriteBlobToFile=proxy_D3DWriteBlobToFile @28
+  DebugSetMute=proxy_DebugSetMute @29
