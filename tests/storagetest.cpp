@@ -109,9 +109,9 @@ int main(int argc, char** argv) {
                 HANDLE h;
                 ~CloseLocked() { CloseHandle(h); }
             } close{locked};
-            DWORD size = GetFileSize(locked, nullptr), read{};
+            DWORD size = GetFileSize(locked, nullptr), lockedRead{};
             std::string before(size, 0), after(size, 0);
-            if (!ReadFile(locked, before.data(), size, &read, nullptr) || read != size) return 37;
+            if (!ReadFile(locked, before.data(), size, &lockedRead, nullptr) || lockedRead != size) return 37;
             const auto eventCount = events;
             if (SUCCEEDED(map->Insert(key.Get(), replacement.Get(), &replaced))) return 38;
             ComPtr<IInspectable> current;
@@ -130,8 +130,8 @@ int main(int argc, char** argv) {
             map->get_Size(&countBefore);
             if (SUCCEEDED(map->Clear()) || FAILED(map->get_Size(&countAfter)) || countAfter != countBefore) return 43;
             SetFilePointer(locked, 0, nullptr, FILE_BEGIN);
-            if (GetFileSize(locked, nullptr) != size || !ReadFile(locked, after.data(), size, &read, nullptr) ||
-                read != size || after != before || events != eventCount)
+            if (GetFileSize(locked, nullptr) != size || !ReadFile(locked, after.data(), size, &lockedRead, nullptr) ||
+                lockedRead != size || after != before || events != eventCount)
                 return 44;
             CloseHandle(close.h);
             close.h = INVALID_HANDLE_VALUE;
@@ -149,7 +149,7 @@ int main(int argc, char** argv) {
             if (argc > 1 && !strcmp(argv[1], "write")) {
                 ComPtr<IInspectable> value;
                 HRESULT hr = E_FAIL;
-                BYTE bytes[] = {0, 128, 255};
+                BYTE arrayBytes[] = {0, 128, 255};
                 switch (i) {
                 case 0:
                     hr = props->CreateString(expected.Get(), &value);
@@ -167,7 +167,7 @@ int main(int argc, char** argv) {
                     hr = props->CreateDouble(1.2345678901234567, &value);
                     break;
                 case 5:
-                    hr = props->CreateUInt8Array(3, bytes, &value);
+                    hr = props->CreateUInt8Array(3, arrayBytes, &value);
                     break;
                 default:
                     break;

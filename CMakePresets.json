@@ -1,7 +1,7 @@
 {
   "version": 6,
   "configurePresets": [
-    {"name": "windows-x86", "generator": "Ninja", "binaryDir": "${sourceDir}/build/windows-x86", "cacheVariables": {"CMAKE_BUILD_TYPE": "RelWithDebInfo", "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"}},
+    {"name": "windows-x86", "generator": "Ninja", "binaryDir": "${sourceDir}/build/windows-x86", "cacheVariables": {"CMAKE_CXX_COMPILER": "cl", "CMAKE_BUILD_TYPE": "RelWithDebInfo", "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"}},
     {"name": "macos-x86", "generator": "Ninja", "binaryDir": "${sourceDir}/build/macos-x86", "toolchainFile": "${sourceDir}/cmake/clang-cl-xwin.cmake", "cacheVariables": {"CMAKE_BUILD_TYPE": "RelWithDebInfo", "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"}}
   ],
   "buildPresets": [
