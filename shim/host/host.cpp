@@ -270,6 +270,10 @@ HRESULT RunHost(const std::function<HRESULT()>& initialize) {
     cls.hInstance = GetModuleHandleW(nullptr);
     cls.lpszClassName = L"CTR2ShimWindow";
     cls.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    // Wine's Mac driver keeps a window see-through, title bar included, until
+    // the window itself draws. The game draws only in child surfaces, so let
+    // the background paint the client area once, before they cover it.
+    cls.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
     if (!RegisterClassW(&cls) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
         return HRESULT_FROM_WIN32(GetLastError());
     WNDCLASSW surface{};
