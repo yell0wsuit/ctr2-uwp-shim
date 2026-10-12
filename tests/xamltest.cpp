@@ -11,6 +11,7 @@
 #include <wrl/wrappers/corewrappers.h>
 #include <atomic>
 #include <cstdio>
+#include "window_test_helpers.h"
 using namespace Microsoft::WRL;
 using namespace Microsoft::WRL::Wrappers;
 using namespace ABI::Windows::UI::Xaml;
@@ -127,7 +128,9 @@ int main() {
                 if (window) {
                     ABI::Windows::Foundation::Rect bounds{};
                     CHECK(SUCCEEDED(window->get_Bounds(&bounds)));
-                    CHECK(bounds.Width == 1024 && bounds.Height == 768);
+                    SIZE expected{};
+                    CHECK(DefaultClientSize(TestWindow(), expected));
+                    CHECK(bounds.Width == expected.cx && bounds.Height == expected.cy);
                     ComPtr<ABI::Windows::UI::Core::ICoreWindow> coreWindow;
                     CHECK(SUCCEEDED(window->get_CoreWindow(&coreWindow)));
                     if (coreWindow) {

@@ -73,8 +73,8 @@ jobs:
               run: cmake --build build/release --config RelWithDebInfo --parallel
 
             - name: Run native tests
-              # Hosted runners do not provide the hardware Direct3D device gputest needs.
-              run: ctest --test-dir build/release -C RelWithDebInfo --output-on-failure --timeout 60 -E '^gputest$'
+              # GPU and media playback tests require desktop hardware unavailable on hosted runners.
+              run: ctest --test-dir build/release -C RelWithDebInfo --output-on-failure --timeout 60 -E '^(gputest|mediatest)$'
 
             - name: Run script tests
               run: python -m unittest discover -s tests/python

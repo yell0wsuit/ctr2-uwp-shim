@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <cstdio>
 #include <string>
+#include "window_test_helpers.h"
 using namespace Microsoft::WRL;
 using namespace Microsoft::WRL::Wrappers;
 using namespace ABI::Windows::UI::Xaml;
@@ -27,20 +28,6 @@ static int failures;
             ++failures;                                                                                                \
         }                                                                                                              \
     } while (0)
-static HWND TestWindow() {
-    HWND result = nullptr;
-    EnumThreadWindows(
-        GetCurrentThreadId(),
-        [](HWND window, LPARAM context) -> BOOL {
-            wchar_t name[80]{};
-            GetClassNameW(window, name, ARRAYSIZE(name));
-            if (wcscmp(name, L"CTR2ShimWindow") != 0) return TRUE;
-            *reinterpret_cast<HWND*>(context) = window;
-            return FALSE;
-        },
-        reinterpret_cast<LPARAM>(&result));
-    return result;
-}
 int wmain(int argc, wchar_t** argv) {
     if (argc != 3) return 1;
     const std::wstring action(argv[1]), mode(argv[2]);
@@ -202,8 +189,10 @@ int wmain(int argc, wchar_t** argv) {
                 CHECK(GetPrivateProfileIntW(L"window", L"Height", 0, file.c_str()) == static_cast<UINT>(client.bottom));
             } else {
                 RECT client{};
-                GetClientRect(host, &client);
-                CHECK(client.right == 1024 && client.bottom == 768);
+                CHECK(GetClientRect(host, &client));
+                SIZE expected{};
+                CHECK(DefaultClientSize(host, expected));
+                CHECK(client.right == expected.cx && client.bottom == expected.cy);
                 CHECK(GetPrivateProfileIntW(L"window", L"Width", 0, file.c_str()) == static_cast<UINT>(client.right));
                 CHECK(GetPrivateProfileIntW(L"window", L"Height", 0, file.c_str()) == static_cast<UINT>(client.bottom));
             }
