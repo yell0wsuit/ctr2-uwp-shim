@@ -5,43 +5,54 @@
 #include <cstring>
 
 namespace ctr2 {
-using FactoryCall = HRESULT (WINAPI*)(HSTRING, REFIID, void**);
-using ActivateCall = HRESULT (WINAPI*)(HSTRING, IInspectable**);
+using FactoryCall = HRESULT(WINAPI*)(HSTRING, REFIID, void**);
+using ActivateCall = HRESULT(WINAPI*)(HSTRING, IInspectable**);
 static FactoryCall originalFactory = &RoGetActivationFactory;
 static ActivateCall originalActivate = &RoActivateInstance;
 static HRESULT WINAPI GetFactory(HSTRING name, REFIID iid, void** out) noexcept {
     if (!out) return E_POINTER;
     *out = nullptr;
     HRESULT hr;
-    if (TraceMode()) hr = originalFactory(name, iid, out);
+    if (TraceMode())
+        hr = originalFactory(name, iid, out);
     else {
         // Prefer the OS Streams implementation when available. The partial
         // buffer reader fills the missing Wine class, without replacing the
         // complete Windows DataReader implementation.
-        if(wcscmp(WindowsGetStringRawBuffer(name,nullptr),L"Windows.Storage.Streams.DataReader")==0) {
-            hr=originalFactory(name,iid,out);
-            if(SUCCEEDED(hr)) { LogActivation(name,iid,hr); return hr; }
-            *out=nullptr;
+        if (wcscmp(WindowsGetStringRawBuffer(name, nullptr), L"Windows.Storage.Streams.DataReader") == 0) {
+            hr = originalFactory(name, iid, out);
+            if (SUCCEEDED(hr)) {
+                LogActivation(name, iid, hr);
+                return hr;
+            }
+            *out = nullptr;
         }
         Microsoft::WRL::ComPtr<IActivationFactory> factory;
         hr = ShimGetFactory(name, &factory);
-        if (hr == CLASS_E_CLASSNOTAVAILABLE) hr = originalFactory(name, iid, out);
-        else if (SUCCEEDED(hr)) hr = factory->QueryInterface(iid, out);
+        if (hr == CLASS_E_CLASSNOTAVAILABLE)
+            hr = originalFactory(name, iid, out);
+        else if (SUCCEEDED(hr))
+            hr = factory->QueryInterface(iid, out);
     }
-    LogActivation(name, iid, hr); return hr;
+    LogActivation(name, iid, hr);
+    return hr;
 }
 static HRESULT WINAPI Activate(HSTRING name, IInspectable** out) noexcept {
     if (!out) return E_POINTER;
     *out = nullptr;
     HRESULT hr;
-    if (TraceMode()) hr = originalActivate(name, out);
+    if (TraceMode())
+        hr = originalActivate(name, out);
     else {
         Microsoft::WRL::ComPtr<IActivationFactory> factory;
         hr = ShimGetFactory(name, &factory);
-        if (hr == CLASS_E_CLASSNOTAVAILABLE) hr = originalActivate(name, out);
-        else if (SUCCEEDED(hr)) hr = factory->ActivateInstance(out);
+        if (hr == CLASS_E_CLASSNOTAVAILABLE)
+            hr = originalActivate(name, out);
+        else if (SUCCEEDED(hr))
+            hr = factory->ActivateInstance(out);
     }
-    LogActivation(name, __uuidof(IInspectable), hr); return hr;
+    LogActivation(name, __uuidof(IInspectable), hr);
+    return hr;
 }
 static void PatchModule(HMODULE module) noexcept {
     if (!module) return;
@@ -61,13 +72,16 @@ static void PatchModule(HMODULE module) noexcept {
             if (IMAGE_SNAP_BY_ORDINAL32(names->u1.Ordinal)) continue;
             auto symbol = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData);
             void* hook = nullptr;
-            if (strcmp(reinterpret_cast<char*>(symbol->Name), "RoGetActivationFactory") == 0) hook = reinterpret_cast<void*>(&GetFactory);
-            if (strcmp(reinterpret_cast<char*>(symbol->Name), "RoActivateInstance") == 0) hook = reinterpret_cast<void*>(&Activate);
+            if (strcmp(reinterpret_cast<char*>(symbol->Name), "RoGetActivationFactory") == 0)
+                hook = reinterpret_cast<void*>(&GetFactory);
+            if (strcmp(reinterpret_cast<char*>(symbol->Name), "RoActivateInstance") == 0)
+                hook = reinterpret_cast<void*>(&Activate);
             if (!hook) continue;
             DWORD old;
             if (!VirtualProtect(&slots->u1.Function, sizeof(DWORD), PAGE_READWRITE, &old)) continue;
             InterlockedExchange(reinterpret_cast<LONG*>(&slots->u1.Function), reinterpret_cast<LONG>(hook));
-            DWORD ignored; VirtualProtect(&slots->u1.Function, sizeof(DWORD), old, &ignored);
+            DWORD ignored;
+            VirtualProtect(&slots->u1.Function, sizeof(DWORD), old, &ignored);
         }
     }
 }

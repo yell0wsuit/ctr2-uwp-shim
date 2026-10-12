@@ -1,3 +1,5 @@
 #pragma once
 #include <windows.h>
-namespace ctr2 { HRESULT InitializeGraphicsRedirect(); }
+namespace ctr2 {
+HRESULT InitializeGraphicsRedirect();
+}

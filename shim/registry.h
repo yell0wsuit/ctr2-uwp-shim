@@ -13,7 +13,7 @@ HRESULT MakeCursorFactory(IActivationFactory** factory);
 HRESULT MakeVisualizationFactory(IActivationFactory** factory);
 HRESULT MakeStorageFactory(IActivationFactory** factory);
 HRESULT MakeAdFactory(IActivationFactory** factory);
-HRESULT MakeHttpFactory(bool filter,IActivationFactory** factory);
+HRESULT MakeHttpFactory(bool filter, IActivationFactory** factory);
 HRESULT MakeNetworkFactory(IActivationFactory** factory);
 HRESULT MakeApplicationViewFactory(IActivationFactory** factory);
 HRESULT MakeHardwareFactory(IActivationFactory** factory);
