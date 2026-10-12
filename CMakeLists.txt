@@ -115,9 +115,15 @@ foreach(mode normal max full maxfull)
     ENVIRONMENT_MODIFICATION "CTR2SHIM_WINDOW_STATE=unset:"
     RESOURCE_LOCK ctr2_window_${mode} TIMEOUT 15)
 endforeach()
-foreach(mode corrupt offscreen overflow)
+foreach(mode corrupt offscreen overflow legacy invalidstate invalidsize)
   add_test(NAME window_${mode} COMMAND windowtest invalid ${mode})
   set_tests_properties(window_${mode} PROPERTIES
     ENVIRONMENT "CTR2SHIM_DATA=${CMAKE_BINARY_DIR}/window-test-data/${mode}"
+    ENVIRONMENT_MODIFICATION "CTR2SHIM_WINDOW_STATE=unset:" TIMEOUT 15)
+endforeach()
+foreach(mode normal max full)
+  add_test(NAME window_manual_${mode} COMMAND windowtest manual ${mode})
+  set_tests_properties(window_manual_${mode} PROPERTIES
+    ENVIRONMENT "CTR2SHIM_DATA=${CMAKE_BINARY_DIR}/window-test-data/manual-${mode}"
     ENVIRONMENT_MODIFICATION "CTR2SHIM_WINDOW_STATE=unset:" TIMEOUT 15)
 endforeach()

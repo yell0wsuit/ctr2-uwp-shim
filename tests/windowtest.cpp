@@ -52,9 +52,17 @@ int wmain(int argc, wchar_t** argv) {
     std::filesystem::create_directories(local);
     auto file = local / L"window.ini";
     if (action == L"invalid") {
-        const wchar_t* record = mode == L"offscreen"  ? L"1,50000,50000,50640,50480,0,0"
-                                : mode == L"overflow" ? L"1,-2147483648,0,2147483647,480,1,1"
-                                                      : L"1,80,90,720,570,0,0,trailing";
+        const wchar_t* record = mode == L"offscreen"      ? L"50000,50000,640,480,0"
+                                : mode == L"overflow"     ? L"2147483647,0,2147483647,480,1"
+                                : mode == L"legacy"       ? L"1,80,90,720,570,0,0"
+                                : mode == L"invalidstate" ? L"80,90,640,480,3"
+                                : mode == L"invalidsize"  ? L"80,90,0,480,0"
+                                                          : L"80,90,640,480,0,trailing";
+        CHECK(WritePrivateProfileStringW(L"window", L"Placement", record, file.c_str()));
+    }
+    if (action == L"manual") {
+        wchar_t record[80]{};
+        swprintf_s(record, L"80,90,640,480,%d", full ? 2 : maximized ? 1 : 0);
         CHECK(WritePrivateProfileStringW(L"window", L"Placement", record, file.c_str()));
     }
     RoInitialize(RO_INIT_MULTITHREADED);
@@ -109,7 +117,7 @@ int wmain(int argc, wchar_t** argv) {
                     // Minimized is transient; remember the previous normal/maximized state.
                     ShowWindow(host, SW_MINIMIZE);
                 }
-            } else if (action == L"read") {
+            } else if (action == L"read" || action == L"manual") {
                 CHECK(!IsIconic(host));
                 CHECK(static_cast<bool>(fullscreen) == full);
                 CHECK(SUCCEEDED(window->Activate())); // Re-activation preserves the restored state.
@@ -123,7 +131,9 @@ int wmain(int argc, wchar_t** argv) {
                     SendMessageW(host, WM_KEYDOWN, VK_F11, 0);
                     CHECK(SUCCEEDED(view3->get_IsFullScreenMode(&fullscreen)) && !fullscreen);
                 }
-                CHECK((IsZoomed(host) != FALSE) == maximized);
+                // The single saved mode does not retain a pre-fullscreen
+                // maximized mode across restarts; fullscreen exits to windowed.
+                CHECK((IsZoomed(host) != FALSE) == (maximized && !full));
                 WINDOWPLACEMENT placement{sizeof(WINDOWPLACEMENT)};
                 CHECK(GetWindowPlacement(host, &placement));
                 CHECK(placement.rcNormalPosition.right - placement.rcNormalPosition.left == 640);
@@ -136,7 +146,7 @@ int wmain(int argc, wchar_t** argv) {
                 CHECK(SUCCEEDED(view3->get_IsFullScreenMode(&fullscreen)) && fullscreen);
                 SendMessageW(host, WM_SYSKEYDOWN, VK_RETURN, 1L << 29);
                 CHECK(SUCCEEDED(view3->get_IsFullScreenMode(&fullscreen)) && !fullscreen);
-                CHECK((IsZoomed(host) != FALSE) == maximized);
+                CHECK((IsZoomed(host) != FALSE) == (maximized && !full));
             } else {
                 CHECK(!fullscreen && !IsIconic(host) && !IsZoomed(host));
                 if (mode == L"offscreen") {
@@ -156,6 +166,17 @@ int wmain(int argc, wchar_t** argv) {
         });
     CHECK(SUCCEEDED(statics->Start(callback.Get())));
     CHECK(std::filesystem::exists(file));
+    wchar_t record[256]{};
+    GetPrivateProfileStringW(L"window", L"Placement", L"", record, ARRAYSIZE(record), file.c_str());
+    LONG x = 0, y = 0, width = 0, height = 0;
+    int state = 0;
+    wchar_t extra{};
+    CHECK(swscanf_s(record, L"%ld,%ld,%ld,%ld,%d %lc", &x, &y, &width, &height, &state, &extra, 1u) == 5);
+    CHECK(width > 0 && height > 0 && state >= 0 && state <= 2);
+    if (action == L"write") {
+        CHECK(x == 80 && y == 90 && width == 640 && height == 480);
+        CHECK(state == (full ? 2 : maximized ? 1 : 0));
+    }
     printf("windowtest: %ls %ls; %d failure(s)\n", action.c_str(), mode.c_str(), failures);
     return failures ? 1 : 0;
 }

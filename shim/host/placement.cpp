@@ -19,16 +19,15 @@ void CreateSettingsFile(const std::wstring& path) {
     if (file == INVALID_HANDLE_VALUE) return;
     constexpr char guide[] = "; ctr2shim window placement. Saved automatically between runs.\r\n"
                              "; Close the game before editing; later saves update Placement.\r\n"
-                             "; Placement=version,left,top,right,bottom,maximized,fullscreen\r\n"
-                             "; Keep version=1. Mode flags: 0=off, 1=on.\r\n"
-                             "; Outer window size (includes title bar and borders):\r\n"
-                             ";   width=right-left, height=bottom-top\r\n"
-                             ";   right=left+width, bottom=top+height\r\n"
-                             "; Examples at (80,90), normal window mode:\r\n"
-                             ";   1280x720: Placement=1,80,90,1360,810,0,0\r\n"
-                             ";   1366x768: Placement=1,80,90,1446,858,0,0\r\n"
-                             ";   1600x900: Placement=1,80,90,1680,990,0,0\r\n"
-                             "; Fullscreen uses the monitor size; this rectangle is kept for exit.\r\n"
+                             "; Placement=X,Y,Width,Height,State\r\n"
+                             "; State: 0=windowed, 1=maximized, 2=fullscreen.\r\n"
+                             "; Width/Height are the outer window size, including title bar and borders.\r\n"
+                             "; Examples at (80,90), windowed:\r\n"
+                             ";   1280x720: Placement=80,90,1280,720,0\r\n"
+                             ";   1366x768: Placement=80,90,1366,768,0\r\n"
+                             ";   1600x900: Placement=80,90,1600,900,0\r\n"
+                             "; Maximized/fullscreen use the monitor size; Width/Height are kept for exit.\r\n"
+                             "; After restarting in fullscreen, exiting returns to windowed mode.\r\n"
                              "; Toggle fullscreen with F11 or Alt+Enter.\r\n"
                              "; Delete this file with the game closed to reset placement.\r\n\r\n";
     DWORD written{};
@@ -80,17 +79,20 @@ void WindowPlacement::Initialize(HWND window) {
     if (!path_.empty()) {
         wchar_t value[256]{};
         GetPrivateProfileStringW(L"window", L"Placement", L"", value, ARRAYSIZE(value), path_.c_str());
-        RECT rect{};
-        int version = 0, maximized = 0, full = 0;
+        LONGLONG x = 0, y = 0, width = 0, height = 0;
+        LONGLONG state = 0;
         wchar_t extra{};
-        if (swscanf_s(value, L"%d,%ld,%ld,%ld,%ld,%d,%d %lc", &version, &rect.left, &rect.top, &rect.right,
-                      &rect.bottom, &maximized, &full, &extra, 1u) == 7 &&
-            version == 1 && (maximized == 0 || maximized == 1) && (full == 0 || full == 1) && rect.left >= -100000 &&
-            rect.top >= -100000 && rect.right <= 100000 && rect.bottom <= 100000 &&
-            static_cast<LONGLONG>(rect.right) - rect.left > 0 && static_cast<LONGLONG>(rect.bottom) - rect.top > 0) {
-            normal_.rcNormalPosition = rect;
-            normal_.showCmd = maximized ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
-            restoreFullscreen = full != 0;
+        if (swscanf_s(value, L"%lld,%lld,%lld,%lld,%lld %lc", &x, &y, &width, &height, &state, &extra, 1u) == 5 &&
+            x >= -100000 && x <= 100000 && y >= -100000 && y <= 100000 && width > 0 && width <= 100000 && height > 0 &&
+            height <= 100000 && x + width <= 100000 && y + height <= 100000 && state >= 0 && state <= 2) {
+            normal_.rcNormalPosition = {
+                static_cast<LONG>(x),
+                static_cast<LONG>(y),
+                static_cast<LONG>(x + width),
+                static_cast<LONG>(y + height),
+            };
+            normal_.showCmd = state == 1 ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
+            restoreFullscreen = state == 2;
         }
     }
     FitMonitor();
@@ -159,8 +161,10 @@ void WindowPlacement::Save() {
     }
     wchar_t value[256]{};
     const auto& rect = normal_.rcNormalPosition;
-    swprintf_s(value, L"1,%ld,%ld,%ld,%ld,%d,%d", rect.left, rect.top, rect.right, rect.bottom,
-               normal_.showCmd == SW_SHOWMAXIMIZED ? 1 : 0, fullscreen_ ? 1 : 0);
+    swprintf_s(value, L"%ld,%ld,%ld,%ld,%d", rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
+               fullscreen_                           ? 2
+               : normal_.showCmd == SW_SHOWMAXIMIZED ? 1
+                                                     : 0);
     CreateSettingsFile(path_);
     if (!WritePrivateProfileStringW(L"window", L"Placement", value, path_.c_str()))
         Log("FAIL", "saving window placement error=%lu", GetLastError());
