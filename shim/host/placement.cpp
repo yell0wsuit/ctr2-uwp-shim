@@ -11,6 +11,31 @@ using namespace Microsoft::WRL;
 namespace ctr2 {
 namespace {
 constexpr UINT_PTR SaveTimer = 0x43545232;
+void CreateSettingsFile(const std::wstring& path) {
+    // Seed new files only. Updating Placement through the INI API preserves
+    // these comments and any comments the player adds to an existing file.
+    HANDLE file =
+        CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return;
+    constexpr char guide[] = "; ctr2shim window placement. Saved automatically between runs.\r\n"
+                             "; Close the game before editing; later saves update Placement.\r\n"
+                             "; Placement=version,left,top,right,bottom,maximized,fullscreen\r\n"
+                             "; Keep version=1. Mode flags: 0=off, 1=on.\r\n"
+                             "; Outer window size (includes title bar and borders):\r\n"
+                             ";   width=right-left, height=bottom-top\r\n"
+                             ";   right=left+width, bottom=top+height\r\n"
+                             "; Examples at (80,90), normal window mode:\r\n"
+                             ";   1280x720: Placement=1,80,90,1360,810,0,0\r\n"
+                             ";   1366x768: Placement=1,80,90,1446,858,0,0\r\n"
+                             ";   1600x900: Placement=1,80,90,1680,990,0,0\r\n"
+                             "; Fullscreen uses the monitor size; this rectangle is kept for exit.\r\n"
+                             "; Toggle fullscreen with F11 or Alt+Enter.\r\n"
+                             "; Delete this file with the game closed to reset placement.\r\n\r\n";
+    DWORD written{};
+    if (!WriteFile(file, guide, sizeof(guide) - 1, &written, nullptr) || written != sizeof(guide) - 1)
+        Log("FAIL", "writing window settings guide error=%lu", GetLastError());
+    CloseHandle(file);
+}
 std::wstring SettingsPath() {
     wchar_t disabled[8]{};
     if (GetEnvironmentVariableW(L"CTR2SHIM_WINDOW_STATE", disabled, ARRAYSIZE(disabled)) &&
@@ -136,6 +161,7 @@ void WindowPlacement::Save() {
     const auto& rect = normal_.rcNormalPosition;
     swprintf_s(value, L"1,%ld,%ld,%ld,%ld,%d,%d", rect.left, rect.top, rect.right, rect.bottom,
                normal_.showCmd == SW_SHOWMAXIMIZED ? 1 : 0, fullscreen_ ? 1 : 0);
+    CreateSettingsFile(path_);
     if (!WritePrivateProfileStringW(L"window", L"Placement", value, path_.c_str()))
         Log("FAIL", "saving window placement error=%lu", GetLastError());
 }
