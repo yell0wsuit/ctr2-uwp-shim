@@ -1,0 +1,81 @@
+name: Publish DLL release
+
+on:
+    push:
+        branches: [main]
+    workflow_dispatch:
+
+permissions:
+    contents: write
+
+concurrency:
+    group: dll-release
+    cancel-in-progress: false
+
+jobs:
+    release:
+        if: github.ref == 'refs/heads/main'
+        runs-on: windows-latest
+        timeout-minutes: 30
+        defaults:
+            run:
+              shell: pwsh
+        env:
+            GH_TOKEN: ${{ github.token }}
+            GH_REPO: ${{ github.repository }}
+
+        steps:
+            - name: Determine release version
+              id: version
+              run: |
+                  $date = [DateTime]::UtcNow
+                  # SemVer numeric components cannot have leading zeroes.
+                  $baseTag = "v$($date.Year).$($date.Month).$($date.Day)"
+                  $tags = gh api --paginate "repos/$env:GH_REPO/releases" --jq '.[].tag_name'
+                  if ($LASTEXITCODE -ne 0) { throw 'Failed to check existing releases.' }
+                  # Include tags without releases so a failed publication cannot reuse an old tag.
+                  $gitTags = gh api --paginate "repos/$env:GH_REPO/tags" --jq '.[].name'
+                  if ($LASTEXITCODE -ne 0) { throw 'Failed to check existing tags.' }
+                  $usedTags = @($tags) + @($gitTags)
+                  $tag = $baseTag
+                  $revision = 0
+                  while ($tag -in $usedTags) {
+                    $revision++
+                    $tag = "$baseTag-$revision"
+                  }
+                  "tag=$tag" >> $env:GITHUB_OUTPUT
+                  Write-Host "Publishing release $tag"
+
+            - name: Check out source
+              uses: actions/checkout@v6
+              with:
+                  persist-credentials: false
+
+            - name: Configure x86 build
+              run: cmake -S . -B build/release -G "Visual Studio 17 2022" -A Win32
+
+            - name: Build
+              run: cmake --build build/release --config RelWithDebInfo --parallel
+
+            - name: Run native tests
+              # Hosted runners do not provide the hardware Direct3D device gputest needs.
+              run: ctest --test-dir build/release -C RelWithDebInfo --output-on-failure --timeout 60 -E '^gputest$'
+
+            - name: Run script tests
+              run: python -m unittest discover -s tests/python
+
+            - name: Publish release
+              env:
+                  RELEASE_TAG: ${{ steps.version.outputs.tag }}
+              run: |
+                  $assets = @(
+                    'build/release/RelWithDebInfo/ctr2shim.dll'
+                    'build/release/RelWithDebInfo/d3dcompiler_47.dll'
+                  )
+                  foreach ($asset in $assets) {
+                    if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) {
+                      throw "Missing release asset: $asset"
+                    }
+                  }
+                  gh release create $env:RELEASE_TAG @assets --target $env:GITHUB_SHA --title $env:RELEASE_TAG --generate-notes --latest
+                  if ($LASTEXITCODE -ne 0) { throw 'Failed to publish release.' }
