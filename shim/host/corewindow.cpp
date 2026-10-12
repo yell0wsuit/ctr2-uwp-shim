@@ -1,9 +1,11 @@
 #include "generated/uicore.h"
 #include "host.h"
+#include "log.h"
 #include "event_args.h"
 #include <wrl.h>
 #include <wrl/event.h>
 #include "host/dispatcher.h"
+#include "platform/cursor.h"
 using namespace Microsoft::WRL;
 using namespace ABI::Windows::UI::Core;
 namespace ctr2 {
@@ -226,7 +228,16 @@ public:
     }
     HRESULT STDMETHODCALLTYPE put_PointerCursor(ICoreCursor* value) override {
         cursor_ = value;
-        SetCursor(value ? LoadCursorW(nullptr, IDC_ARROW) : nullptr);
+        // No cursor hides the pointer over the game.
+        HCURSOR shown = value ? LoadCoreCursor(value) : nullptr;
+        CoreCursorType type = CoreCursorType_Arrow;
+        UINT32 id = 0;
+        if (value) {
+            value->get_Type(&type);
+            value->get_Id(&id);
+        }
+        Log("TRACE", "PointerCursor type=%d id=%u cursor=%p", value ? static_cast<int>(type) : -1, id, shown);
+        SetHostCursor(shown);
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE get_PointerPosition(ABI::Windows::Foundation::Point* value) override {

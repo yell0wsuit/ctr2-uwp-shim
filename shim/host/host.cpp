@@ -4,6 +4,7 @@
 #include "placement.h"
 #include "gpu/dxgi_redirect.h"
 #include "log.h"
+#include <atomic>
 #include <mutex>
 #include <map>
 #include <deque>
@@ -24,6 +25,19 @@ static constexpr UINT CreateSurfaceMessage = WM_APP + 2;
 static constexpr UINT FullscreenMessage = WM_APP + 3;
 static constexpr UINT ActivateMessage = WM_APP + 4;
 static WindowPlacement placement;
+static std::atomic<bool> cursorChosen{false};
+static std::atomic<HCURSOR> cursor{nullptr};
+static HCURSOR HostCursor() { return cursorChosen ? cursor.load() : LoadCursorW(nullptr, IDC_ARROW); }
+// Shows the cursor now when the pointer is over the client area; otherwise
+// the next WM_SETCURSOR does.
+static void ApplyHostCursor() {
+    POINT point{};
+    RECT client{};
+    if (!window || !GetCursorPos(&point) || !GetClientRect(window, &client)) return;
+    HWND under = WindowFromPoint(point);
+    ScreenToClient(window, &point);
+    if ((under == window || IsChild(window, under)) && PtInRect(&client, point)) SetCursor(HostCursor());
+}
 static constexpr wchar_t SurfaceClass[] = L"CTR2ShimSurface";
 // Composition swap chains are independent layers, and the game creates its
 // next one (on resize) before releasing the old. A window holds one flip-model
@@ -59,6 +73,20 @@ HRESULT PostHostWork(int priority, std::function<void()> work) {
     return S_OK;
 }
 HWND HostWindow() noexcept { return window; }
+void SetHostCursor(HCURSOR value) noexcept {
+    cursor = value;
+    cursorChosen = true;
+    // SetCursor only affects the calling thread's windows.
+    if (GetCurrentThreadId() == thread) {
+        ApplyHostCursor();
+        return;
+    }
+    try {
+        PostHostWork(0, ApplyHostCursor);
+    } catch (...) {
+        return; // Out of memory: the next WM_SETCURSOR shows it.
+    }
+}
 DWORD HostThread() noexcept { return thread; }
 void ActivateHostWindow() {
     if (window) SendMessageW(window, ActivateMessage, 0, 0);
@@ -108,6 +136,11 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARA
         return 0;
     }
     if (message == CreateSurfaceMessage) return reinterpret_cast<LRESULT>(CreateSurfaceOnHostThread());
+    // The class cursor is the arrow; over the game, show the game's choice.
+    if (message == WM_SETCURSOR && LOWORD(lparam) == HTCLIENT) {
+        SetCursor(HostCursor());
+        return TRUE;
+    }
     if (message == WM_SIZE && wparam != SIZE_MINIMIZED) {
         // Surfaces fill the client area; DXGI stretches each buffer to its window.
         for (HWND child = GetWindow(hwnd, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT))
@@ -204,7 +237,8 @@ HRESULT RunHost(const std::function<HRESULT()>& initialize) {
     if (length >= ARRAYSIZE(executable)) return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
     const auto repair = RepairAssetNames(std::filesystem::path(executable).parent_path());
     if (FAILED(repair)) {
-        Log("FAIL", "cannot repair encoded map filenames hr=%08lx; decode them manually or check folder permissions", repair);
+        Log("FAIL", "cannot repair encoded map filenames hr=%08lx; decode them manually or check folder permissions",
+            repair);
         return repair;
     }
     thread = GetCurrentThreadId();
