@@ -8,36 +8,46 @@ The game and Microsoft runtime files are not included in this repo.
 
 ## Set up and play
 
-Run the commands below from the repository root.
+### Windows
 
-1. Extract Cut the Rope 2 UWP package from `ZeptoLabUKLimited.CuttheRope2_1.0.0.46_x86__sq9zxnwrk84pj.appx` into a folder such as `C:\Games\CutTheRope2UWP`.
+You can use the prebuilt DLLs without compiling the shim.
 
-   An `.appx` is a ZIP archive, you can rename it to `.zip` before extracting.
+1. Extract Cut the Rope 2 UWP package into a folder such as `C:\Games\CutTheRope2UWP`.
+
+   The game is available from Microsoft Store version at <https://apps.microsoft.com/detail/9nblggh0j0dc>.
+
+   An `.appx` / `.appxbundle` is a ZIP archive, you can rename it to `.zip` before extracting.
+
 2. Download [`vclibs_redist_packages.zip`](https://download.microsoft.com/download/5/f/0/5f0f8404-9329-44a9-8176-ed6f7f746f25/vclibs_redist_packages.zip) and extract `Microsoft.VCLibs.120.00_12.0.21005.1_x86__8wekyb3d8bbwe.appx`. Then copy these files beside `Game.exe`: `msvcr120_app.dll`, `msvcp120_app.dll`, and `vccorlib120_app.dll`. Keep the game's `Assets` folder and other extracted files together.
-3. [Build the shim](docs/building.md#windows), then prepare a separate game folder:
 
-   ```powershell
-   .\scripts\setup.ps1 -SourceDirectory 'C:\Games\CutTheRope2UWP' -Destination '.\local\game'
-   ```
+3. Under **Assets** on the [latest release](https://github.com/yell0wsuit/ctr2-uwp-shim/releases/latest), download `ctr2-uwp-shim-vYEAR.MONTH.DAY-x86.zip` (the version may also have a suffix such as `-1`). Extract both `ctr2shim.dll` and `d3dcompiler_47.dll` beside `Game.exe`. The source code archives do not contain built DLLs. To build them yourself, see the [building guide](docs/building.md#windows).
 
-4. Double-click `local\game\Game.exe`, or launch from the repository:
+4. Check for percent-encoded asset names left by raw `.appx` extraction. In `Assets\Maps`, rename `%21_MasterGameDesignDocument.xml` to `!_MasterGameDesignDocument.xml` if present. Decode any other percent-encoded asset names too; the setup script below does this automatically.
 
-   ```bat
-   scripts\play.bat
-   ```
+5. Double-click `Game.exe` to play. Close the game before updating the shim, then replace both shim DLLs with the ones from the same release.
 
-Setup copies the required game files and shim DLLs, fixes encoded asset names, and verifies that `Game.exe` is unchanged. Close the game and rerun setup after rebuilding; existing saves and `ctr2shim.ini` are preserved.
+### Optional: prepare a separate game folder
 
-For a different build folder, pass `-BuildDirectory` to setup. To launch a different game folder, use `python scripts/play.py --game "C:\Games\CutTheRope2UWP"`.
+With a copy of this repository, you can use setup to copy the required game files, decode asset names, and verify that `Game.exe` is unchanged. Run from the repository root, using the extracted game folder with the three runtime DLLs from step 2. Extract both shim DLLs from the release ZIP into a folder such as `downloads`, then run:
+
+```powershell
+.\scripts\setup.ps1 -SourceDirectory 'C:\Games\CutTheRope2UWP' -Destination '.\local\game' -BuildDirectory '.\downloads'
+```
+
+If you [build the shim locally](docs/building.md#windows), omit `-BuildDirectory` to use `build\windows-x86`. Double-click `local\game\Game.exe` to play. Close the game and rerun setup after updating the DLLs; existing saves and `ctr2shim.ini` are preserved.
+
+With Python 3 installed, you can also launch from the repository with `python scripts/play.py`. For a different game folder, use `python scripts/play.py --game "C:\Games\CutTheRope2UWP"`.
 
 ### macOS / Wine (experimental)
 
-[Cross-compile the shim](docs/building.md#macos-cross-compilation), then use the same extracted game and x86 runtime files:
+Use the same extracted game and x86 runtime files. From the repository root, extract both shim DLLs from the release ZIP into `downloads`, then prepare and launch the game with Python 3 and Wine installed:
 
 ```sh
-bash scripts/setup.sh '/path/to/CutTheRope2UWP' local/game
+bash scripts/setup.sh '/path/to/CutTheRope2UWP' local/game downloads
 python3 scripts/play.py
 ```
+
+Alternatively, [cross-compile the shim](docs/building.md#macos-cross-compilation) and omit the final `downloads` argument to use `build/macos-x86`.
 
 The launcher defaults to Wine Devel in `~/Applications` and stores its Wine prefix in `local/wine-test`. Set `WINE` to your Wine executable and `WINEPREFIX` to use another prefix. Wine launches always enable logging.
 

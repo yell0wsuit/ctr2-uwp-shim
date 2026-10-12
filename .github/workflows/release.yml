@@ -92,5 +92,7 @@ jobs:
                       throw "Missing release asset: $asset"
                     }
                   }
-                  gh release create $env:RELEASE_TAG @assets --target $env:GITHUB_SHA --title $env:RELEASE_TAG --generate-notes --latest
+                  $archive = "build/ctr2-uwp-shim-$env:RELEASE_TAG-x86.zip"
+                  Compress-Archive -LiteralPath $assets -DestinationPath $archive -CompressionLevel Optimal -Force
+                  gh release create $env:RELEASE_TAG $archive --target $env:GITHUB_SHA --title $env:RELEASE_TAG --generate-notes --latest
                   if ($LASTEXITCODE -ne 0) { throw 'Failed to publish release.' }
