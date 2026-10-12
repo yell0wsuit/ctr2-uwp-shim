@@ -19,7 +19,7 @@ jobs:
         timeout-minutes: 30
         defaults:
             run:
-              shell: pwsh
+                shell: pwsh
         env:
             GH_TOKEN: ${{ github.token }}
             GH_REPO: ${{ github.repository }}
@@ -52,7 +52,22 @@ jobs:
                   persist-credentials: false
 
             - name: Configure x86 build
-              run: cmake -S . -B build/release -G "Visual Studio 17 2022" -A Win32
+              run: |
+                  $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
+                  $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json | ConvertFrom-Json
+                  if ($LASTEXITCODE -ne 0 -or -not $installation) {
+                      throw 'No Visual Studio installation with x86 C++ tools was found.'
+                  }
+                  $majorVersion = ([version]$installation.installationVersion).Major
+                  $capabilities = cmake -E capabilities | ConvertFrom-Json
+                  if ($LASTEXITCODE -ne 0) { throw 'Failed to query CMake generators.' }
+                  $generator = $capabilities.generators.name | Where-Object { $_ -match "^Visual Studio $majorVersion " } | Select-Object -First 1
+                  if (-not $generator) {
+                      throw "CMake does not support installed Visual Studio version $majorVersion; update CMake on the runner."
+                  }
+                  Write-Host "Using $generator at $($installation.installationPath)"
+                  cmake -S . -B build/release -G $generator -A Win32 "-DCMAKE_GENERATOR_INSTANCE=$($installation.installationPath)"
+                  if ($LASTEXITCODE -ne 0) { throw 'Failed to configure the x86 build.' }
 
             - name: Build
               run: cmake --build build/release --config RelWithDebInfo --parallel
