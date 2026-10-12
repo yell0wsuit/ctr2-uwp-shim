@@ -29,14 +29,15 @@ static const std::wstring& LogPath() noexcept {
 // logging leave them alone.
 static void RotateLogs(const std::wstring& path) noexcept {
     static constexpr int kept = 2;
+    std::wstring older[kept + 1];
     try {
         const auto stem = path.substr(0, path.size() - 4); // Without ".log".
-        auto older = [&](int n) { return stem + L"." + std::to_wstring(n) + L".log"; };
-        for (int n = kept; n > 1; --n) MoveFileExW(older(n - 1).c_str(), older(n).c_str(), MOVEFILE_REPLACE_EXISTING);
-        MoveFileExW(path.c_str(), older(1).c_str(), MOVEFILE_REPLACE_EXISTING);
+        for (int n = 1; n <= kept; ++n) older[n] = stem + L"." + std::to_wstring(n) + L".log";
     } catch (...) {
-        // Out of memory: append to the current log instead.
+        return; // Out of memory: keep appending to the current log.
     }
+    for (int n = kept; n > 1; --n) MoveFileExW(older[n - 1].c_str(), older[n].c_str(), MOVEFILE_REPLACE_EXISTING);
+    MoveFileExW(path.c_str(), older[1].c_str(), MOVEFILE_REPLACE_EXISTING);
 }
 void Log(const char* level, const char* format, ...) noexcept {
     // Off unless --log or --trace (or their environment variables) is given.
