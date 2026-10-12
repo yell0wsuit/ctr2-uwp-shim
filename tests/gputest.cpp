@@ -107,6 +107,49 @@ int main() {
                         DeleteFileW(L"ctr2-frame.bmp");
                     }
                 }
+                // On resize the game creates its next swap chain before releasing the
+                // old one. Each must stay flip-model in its own window, newest on top;
+                // a second chain on one window fell back to a blt chain hidden under the
+                // old flip surface, so the screen froze on a stale frame.
+                ComPtr<IDXGISwapChain1> next;
+                HWND first{}, second{}, host = GetAncestor(hwnd, GA_ROOT);
+                desc.Width = 96;
+                if (SUCCEEDED(gpu))
+                    gpu = dxgiFactory->CreateSwapChainForComposition(device.Get(), &desc, nullptr, &next);
+                if (SUCCEEDED(gpu)) gpu = swap->GetHwnd(&first);
+                if (SUCCEEDED(gpu)) gpu = next->GetHwnd(&second);
+                DXGI_SWAP_CHAIN_DESC1 nextDesc{};
+                if (SUCCEEDED(gpu)) gpu = next->GetDesc1(&nextDesc);
+                RECT client{}, surface{};
+                GetClientRect(host, &client);
+                GetClientRect(second, &surface);
+                if (SUCCEEDED(gpu) &&
+                    (first == second || GetParent(second) != host ||
+                     nextDesc.SwapEffect != DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL || GetWindow(host, GW_CHILD) != second ||
+                     surface.right != client.right || surface.bottom != client.bottom)) {
+                    printf("gputest: second swap chain shares or hides behind the first window\n");
+                    gpu = E_FAIL;
+                }
+                // Surfaces follow the host's client area.
+                SetWindowPos(host, nullptr, 0, 0, 900, 700, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+                GetClientRect(host, &client);
+                GetClientRect(second, &surface);
+                if (SUCCEEDED(gpu) && (surface.right != client.right || surface.bottom != client.bottom)) {
+                    printf("gputest: surface window did not follow the host size\n");
+                    gpu = E_FAIL;
+                }
+                // Releasing a swap chain closes its window once the queue runs.
+                back.Reset();
+                target.Reset();
+                swap.Reset();
+                context->ClearState();
+                context->Flush();
+                MSG msg{};
+                while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&msg);
+                if (SUCCEEDED(gpu) && IsWindow(first)) {
+                    printf("gputest: released swap chain kept its window\n");
+                    gpu = E_FAIL;
+                }
             }
             PostQuitMessage(0);
             return S_OK;

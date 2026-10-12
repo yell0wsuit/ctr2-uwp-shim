@@ -5,6 +5,7 @@
 #include <dxgi1_3.h>
 #include <wrl/client.h>
 #include <mutex>
+#include <new>
 #include <map>
 #include <atomic>
 #include <vector>
@@ -172,6 +173,34 @@ static void ObserveSwapChain(IDXGISwapChain1* swap) {
     VirtualProtect(static_cast<void*>(table + 8), slots * sizeof(void*), protection, &ignored);
 }
 
+// Held by a redirected swap chain as private data; DXGI releases it when the
+// swap chain is destroyed, which closes the swap chain's surface window.
+class SurfaceOwner final : public IUnknown {
+    std::atomic<ULONG> refs_{1};
+    HWND surface_;
+
+public:
+    explicit SurfaceOwner(HWND surface) : surface_(surface) {}
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** value) override {
+        if (!value) return E_POINTER;
+        *value = iid == __uuidof(IUnknown) ? this : nullptr;
+        if (!*value) return E_NOINTERFACE;
+        AddRef();
+        return S_OK;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++refs_; }
+    ULONG STDMETHODCALLTYPE Release() override {
+        auto refs = --refs_;
+        if (!refs) {
+            // Posted: the window belongs to the UI thread, and DXGI wants the
+            // swap chain gone before its window.
+            PostMessageW(surface_, WM_CLOSE, 0, 0);
+            delete this;
+        }
+        return refs;
+    }
+};
+static const GUID surfaceTag = {0x5d3c1f0e, 0x2b7a, 0x4c55, {0x9e, 0x31, 0x6a, 0x0f, 0x84, 0x2d, 0xc7, 0x19}};
 static HRESULT STDMETHODCALLTYPE CreateForHost(IDXGIFactory2* factory, IUnknown* device,
                                                const DXGI_SWAP_CHAIN_DESC1* desc, IDXGIOutput* restrictTo,
                                                IDXGISwapChain1** value) {
@@ -182,15 +211,24 @@ static HRESULT STDMETHODCALLTYPE CreateForHost(IDXGIFactory2* factory, IUnknown*
     auto adjusted = *desc;
     adjusted.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
     adjusted.Scaling = DXGI_SCALING_STRETCH;
-    auto hr = factory->CreateSwapChainForHwnd(device, HostWindow(), &adjusted, nullptr, restrictTo, value);
+    HWND surface = CreateSurfaceWindow();
+    if (!surface) return HRESULT_FROM_WIN32(GetLastError() ? GetLastError() : ERROR_INVALID_WINDOW_HANDLE);
+    auto hr = factory->CreateSwapChainForHwnd(device, surface, &adjusted, nullptr, restrictTo, value);
     if (FAILED(hr) && (adjusted.SwapEffect == DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL ||
                        adjusted.SwapEffect == DXGI_SWAP_EFFECT_FLIP_DISCARD)) {
+        Log("TRACE", "DXGI flip swap chain %ux%u failed hr=%08lx; trying DISCARD", adjusted.Width, adjusted.Height, hr);
         adjusted.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-        hr = factory->CreateSwapChainForHwnd(device, HostWindow(), &adjusted, nullptr, restrictTo, value);
+        hr = factory->CreateSwapChainForHwnd(device, surface, &adjusted, nullptr, restrictTo, value);
     }
-    if (SUCCEEDED(hr) && value && *value) {
+    if (SUCCEEDED(hr) && *value) {
         const BOOL tag = TRUE;
         hr = (*value)->SetPrivateData(redirectedTag, sizeof(tag), &tag);
+        auto* owner = new (std::nothrow) SurfaceOwner(surface);
+        if (SUCCEEDED(hr)) hr = owner ? (*value)->SetPrivateDataInterface(surfaceTag, owner) : E_OUTOFMEMORY;
+        if (owner) {
+            owner->Release(); // The swap chain holds it now, or nothing does and the window closes.
+            surface = nullptr;
+        }
         if (SUCCEEDED(hr)) {
             ObserveSwapChain(*value);
         } else {
@@ -198,6 +236,7 @@ static HRESULT STDMETHODCALLTYPE CreateForHost(IDXGIFactory2* factory, IUnknown*
             *value = nullptr;
         }
     }
+    if (surface) PostMessageW(surface, WM_CLOSE, 0, 0);
     Log(FAILED(hr) ? "FAIL" : "TRACE", "DXGI composition -> HWND %ux%u hr=%08lx", adjusted.Width, adjusted.Height, hr);
     return hr;
 }
