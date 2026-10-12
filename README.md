@@ -41,16 +41,18 @@ With Python 3 installed, you can also launch from the repository with `python sc
 
 ### macOS / Wine (experimental)
 
-Use the same extracted game and x86 runtime files. From the repository root, extract both shim DLLs from the release ZIP into `downloads`, then prepare and launch the game with Python 3 and Wine installed:
+Use the same extracted game and x86 runtime files. Wine's own `wined3d.dll` draws nothing for this game on macOS, so you also build a [patched one](wine/wined3d.patch) from Wine's source (see [Wine graphics](docs/building.md#wine-graphics-macos)). From the repository root, extract both shim DLLs from the release ZIP into `downloads`, then build `wined3d.dll` into the same folder, and prepare and launch the game with Python 3 and Wine installed:
 
 ```sh
+brew install bison llvm lld
+bash scripts/build-wined3d.sh downloads
 bash scripts/setup.sh '/path/to/CutTheRope2UWP' local/game downloads
 python3 scripts/play.py
 ```
 
-Alternatively, [cross-compile the shim](docs/building.md#macos-cross-compilation) and omit the final `downloads` argument to use `build/macos-x86`.
+Alternatively, [cross-compile the shim](docs/building.md#macos-cross-compilation), run `scripts/build-wined3d.sh` without an argument, and omit the final `downloads` argument to use `build/macos-x86`.
 
-The launcher defaults to Wine Devel in `~/Applications` and stores its Wine prefix in `local/wine-test`. Set `WINE` to your Wine executable and `WINEPREFIX` to use another prefix. Wine launches always enable logging.
+The launcher defaults to Wine Devel in `~/Applications` and stores its Wine prefix in `local/wine-test`. Set `WINE` to your Wine executable and `WINEPREFIX` to use another prefix. Wine launches always enable logging. The launcher loads the staged `wined3d.dll` in place of Wine's, and turns on Wine's Retina mode with 192 DPI in the prefix so the game renders at the display's full resolution; set `CTR2_RETINA=0` for a faster but softer picture. It relaunches automatically when Wine crashes during graphics startup, which happens in up to two launches in three.
 
 ## Saves and window settings
 
@@ -70,7 +72,7 @@ SaveLocation=game
 
 If the folder is not writable, the shim tries `documents`, then `appdata`. A new save location imports existing saves from `%LOCALAPPDATA%\ctr2`.
 
-Press **F11** or **Alt+Enter** to toggle borderless fullscreen. Window size, position, and mode are remembered. The game keeps running when it loses focus and pauses when minimized. Resizing briefly reloads the game's graphics.
+The window first opens at 1024×768 at 100% display scale, larger at higher scales, and the game renders at the display's real pixel density. Press **F11** or **Alt+Enter** to toggle borderless fullscreen. Window size, position, and mode are remembered. The game keeps running when it loses focus and pauses when minimized. Resizing briefly reloads the game's graphics.
 
 Window settings are stored in `Local/window.ini` inside your save folder. Close the game before editing it; `Width` and `Height` specify the game area, and `State` accepts `windowed`, `maximized`, or `fullscreen`. Delete the file with the game closed to reset window placement.
 

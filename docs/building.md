@@ -47,6 +47,19 @@ The xwin command accepts Microsoft's SDK license. Outputs are in `build/macos-x8
 
 The toolchain defaults to LLVM in `/opt/homebrew/opt/llvm` and SDK files in `.sdk`. Set `LLVM_ROOT` and `XWIN_ROOT` if yours are elsewhere. See the [Wine setup instructions](../README.md#macos--wine-experimental) to launch.
 
+### Wine graphics (macOS)
+
+Wine's own `wined3d.dll` draws nothing for this game on macOS. The game caps Direct3D at feature level 9_3, macOS's OpenGL 4.1 caps wined3d there too, and at 9_x wined3d uses only the SM2 (`Aon9`) part of a shader, which Wine's compiler never produces. [`wine/wined3d.patch`](../wine/wined3d.patch) makes wined3d run the SM4 code instead. Build the patched DLL with:
+
+```sh
+brew install bison llvm lld
+scripts/build-wined3d.sh
+```
+
+The script reads the version of Wine that `WINE` points to (default: Wine Devel in `~/Applications`), downloads that version's source from WineHQ into `local/wine-src`, checks it against a pinned SHA-256, applies the patch, and builds only the 32-bit DLL. The first build takes a few minutes. The output is `build/macos-x86/wined3d.dll`, or the folder given as the first argument; `setup.sh` stages it from its build folder and `run.sh` loads it with `WINEDLLOVERRIDES=wined3d=n`.
+
+The DLL must match the installed Wine exactly, because Wine's `d3d11.dll` and `dxgi.dll` call its internal exports, so rebuild after updating Wine. For a Wine version other than 11.18, set `WINE_SOURCE_SHA256` to the checksum of its source tarball; the patch may need updating.
+
 ## Development tools
 
 With LLVM installed, format and lint changed C++ files (replace `<files>` with their paths):
