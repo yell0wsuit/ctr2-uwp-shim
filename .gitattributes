@@ -1,3 +1,2 @@
-# Batch files need CRLF; shell scripts need LF, whatever core.autocrlf says.
-*.bat text eol=crlf
-*.sh text eol=lf
+# LF line endings everywhere, whatever core.autocrlf says; Git detects binaries.
+* text=auto eol=lf

@@ -18,3 +18,4 @@ AllowShortLambdasOnASingleLine: All
 SortIncludes: Never
 IncludeBlocks: Preserve
 MaxEmptyLinesToKeep: 1
+LineEnding: LF
