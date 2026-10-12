@@ -84,3 +84,13 @@ add_test(NAME navtest COMMAND navtest)
 add_executable(focustest tests/focustest.cpp)
 target_link_libraries(focustest PRIVATE runtimeobject ole32 user32)
 add_test(NAME focustest COMMAND focustest)
+# Tests keep saves in the build tree, never in the player's save folder.
+get_property(ctr2_tests DIRECTORY PROPERTY TESTS)
+set_tests_properties(${ctr2_tests} PROPERTIES ENVIRONMENT "CTR2SHIM_DATA=${CMAKE_BINARY_DIR}/test-data")
+# Save-location tests resolve the folder themselves, as the game does.
+add_test(NAME storage_location COMMAND storagetest location)
+add_test(NAME storage_location_ini COMMAND storagetest location_ini)
+set_tests_properties(storage_location storage_location_ini PROPERTIES
+  ENVIRONMENT "LOCALAPPDATA=${CMAKE_BINARY_DIR}/test-localappdata"
+  ENVIRONMENT_MODIFICATION "CTR2SHIM_DATA=unset:"
+  RESOURCE_LOCK ctr2_save_location)

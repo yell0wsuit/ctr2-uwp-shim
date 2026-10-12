@@ -42,6 +42,8 @@ for parent, directories, files in os.walk(sys.argv[1], topdown=False):
             sys.exit(f'Cannot decode asset name: {os.path.join(parent, name)}')
         os.replace(os.path.join(parent, name), os.path.join(parent, decoded))
 DECODE_NAMES
+# Settings template, copied once so later edits survive re-staging.
+[[ -f "$destination/ctr2shim.ini" ]] || cp "$root/scripts/ctr2shim.ini" "$destination/"
 python3 - "$build" "$destination" <<'COPY_SHIMS'
 import os, pathlib, shutil, sys, tempfile
 build, destination = map(pathlib.Path, sys.argv[1:])

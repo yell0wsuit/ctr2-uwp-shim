@@ -33,12 +33,15 @@ class PowerShellSetupTests(unittest.TestCase):
             self.assertEqual((dest/'Assets'/'assets'/'maps'/'!_MasterGameDesignDocument.xml').read_bytes(), b'design')
             self.assertFalse((dest/'Assets'/'assets'/'maps'/'%21_MasterGameDesignDocument.xml').exists())
             self.assertEqual((dest/'Assets'/'a b'/'c.txt').read_bytes(), b'c')
-            # Re-staging replaces the shim DLLs in place and decodes again.
+            self.assertIn(b'SaveLocation=game', (dest/'ctr2shim.ini').read_bytes())
+            (dest/'ctr2shim.ini').write_bytes(b'[storage]\r\nSaveLocation=documents\r\n')
+            # Re-staging replaces the shim DLLs in place, decodes again, and keeps settings.
             (build/'ctr2shim.dll').write_bytes(X86_PE + b'new shim')
             result = self.run_setup(source, dest, build)
             self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
             self.assertEqual((dest/'ctr2shim.dll').read_bytes(), X86_PE + b'new shim')
             self.assertFalse((dest/'Assets'/'assets'/'maps'/'%21_MasterGameDesignDocument.xml').exists())
+            self.assertIn(b'SaveLocation=documents', (dest/'ctr2shim.ini').read_bytes())
 @unittest.skipIf(sys.platform == 'win32', 'setup.sh stages the game for Wine on macOS')
 class SetupTests(unittest.TestCase):
     def test_decodes_asset_names(self):

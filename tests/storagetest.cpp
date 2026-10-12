@@ -5,6 +5,7 @@
 #include <wrl.h>
 #include <wrl/wrappers/corewrappers.h>
 #include <cstdio>
+#include <filesystem>
 #include <string>
 using namespace Microsoft::WRL;
 using namespace Microsoft::WRL::Wrappers;
@@ -30,35 +31,62 @@ std::string ReadAll(const std::wstring& path) {
     text.resize(read);
     return text;
 }
-// Appends raw journal text for a store before the shim loads it.
-bool AppendJournal(const wchar_t* store, const char* records) {
-    wchar_t root[MAX_PATH]{};
-    if (!GetEnvironmentVariableW(L"LOCALAPPDATA", root, MAX_PATH)) return false;
-    std::wstring directory = std::wstring(root) + L"\\ctr2";
-    CreateDirectoryW(directory.c_str(), nullptr);
-    CreateDirectoryW((directory + L"\\" + store).c_str(), nullptr);
-    std::wstring journal = directory + L"\\" + store + L"\\settings.json.journal";
-    HANDLE file = CreateFileW(journal.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ, nullptr, OPEN_ALWAYS,
-                              FILE_ATTRIBUTE_NORMAL, nullptr);
+bool WriteText(const std::filesystem::path& path, const char* text, DWORD disposition = OPEN_ALWAYS) {
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    HANDLE file = CreateFileW(path.c_str(), disposition == OPEN_ALWAYS ? FILE_APPEND_DATA : GENERIC_WRITE,
+                              FILE_SHARE_READ, nullptr, disposition, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) return false;
-    DWORD written{}, size = static_cast<DWORD>(strlen(records));
-    const bool ok = WriteFile(file, records, size, &written, nullptr) && written == size;
+    DWORD written{}, size = static_cast<DWORD>(strlen(text));
+    const bool ok = WriteFile(file, text, size, &written, nullptr) && written == size;
     CloseHandle(file);
     return ok;
 }
+std::filesystem::path ExeDirectory() {
+    wchar_t path[MAX_PATH]{};
+    GetModuleFileNameW(nullptr, path, MAX_PATH);
+    return std::filesystem::path(path).parent_path();
+}
+std::filesystem::path EnvironmentPath(const wchar_t* name) {
+    wchar_t value[MAX_PATH]{};
+    auto length = GetEnvironmentVariableW(name, value, MAX_PATH);
+    return length && length < MAX_PATH ? std::filesystem::absolute(value).lexically_normal() : std::filesystem::path();
+}
 int main(int argc, char** argv) {
     RoInitialize(RO_INIT_MULTITHREADED);
-    const bool torn = argc > 1 && !strcmp(argv[1], "torn");
+    const char* mode = argc > 1 ? argv[1] : "";
+    const bool torn = !strcmp(mode, "torn");
+    // Location tests run without CTR2SHIM_DATA and with LOCALAPPDATA pointing
+    // into the build tree; every other mode keeps its saves in CTR2SHIM_DATA.
+    const bool location = !strcmp(mode, "location"), locationIni = !strcmp(mode, "location_ini");
+    std::filesystem::path root = location      ? ExeDirectory() / L"SaveData"
+                                 : locationIni ? ExeDirectory() / L"ini-saves"
+                                               : EnvironmentPath(L"CTR2SHIM_DATA");
+    if (root.empty()) return 70;
+    const auto ini = ExeDirectory() / L"ctr2shim.ini";
+    if (location || locationIni) {
+        std::error_code error;
+        std::filesystem::remove_all(root, error);
+        std::filesystem::remove(ini, error);
+        // Saves from the original location are copied into a new one.
+        auto legacy = EnvironmentPath(L"LOCALAPPDATA") / L"ctr2" / L"Local" / L"settings.json";
+        if (!WriteText(legacy, "[\n{\"key\":\"__ctr2shim_test_moved\",\"type\":\"String\",\"value\":\"yes\"}\n]\n",
+                       CREATE_ALWAYS))
+            return 71;
+        if (locationIni && !WriteText(ini, "[storage]\r\nSaveLocation = ini-saves\r\n", CREATE_ALWAYS)) return 72;
+    }
     // A crash can cut the last journal record short. Loading keeps the
     // complete records before it and drops the partial one.
-    if (torn && !AppendJournal(L"Local", "{\"key\":\"__ctr2shim_test_torn\",\"type\":\"String\",\"value\":\"ok\"}\n"
-                                         "{\"key\":\"__ctr2shim_te"))
+    if (torn && !WriteText(root / L"Local" / L"settings.json.journal",
+                           "{\"key\":\"__ctr2shim_test_torn\",\"type\":\"String\",\"value\":\"ok\"}\n"
+                           "{\"key\":\"__ctr2shim_te"))
         return 61;
     // The store keeps its journal open after its first change, so the atomic
     // test seeds its key through the journal and locks it before any change.
-    if (argc > 1 && !strcmp(argv[1], "atomic")) {
+    if (!strcmp(mode, "atomic")) {
         for (const auto* store : {L"Local", L"Roaming"})
-            if (!AppendJournal(store, "{\"key\":\"__ctr2shim_test_atomic\",\"type\":\"Boolean\",\"value\":\"true\"}\n"))
+            if (!WriteText(root / store / L"settings.json.journal",
+                           "{\"key\":\"__ctr2shim_test_atomic\",\"type\":\"Boolean\",\"value\":\"true\"}\n"))
                 return 62;
     }
     auto* dll = LoadLibraryW(L"ctr2shim.dll");
@@ -77,7 +105,28 @@ int main(int argc, char** argv) {
     HString path;
     if (FAILED(item->get_Path(path.GetAddressOf()))) return 7;
     std::wstring text(path.GetRawBuffer(nullptr));
-    if (text.size() < 11 || text.substr(text.size() - 11) != L"\\ctr2\\Local") return 8;
+    if (text != (root / L"Local").wstring()) {
+        printf("LocalFolder %ls, expected %ls\n", text.c_str(), (root / L"Local").c_str());
+        return 8;
+    }
+    if (location || locationIni) {
+        ComPtr<IApplicationDataContainer> container;
+        ComPtr<ABI::Windows::Foundation::Collections::IPropertySet> set;
+        ComPtr<ABI::Windows::Foundation::Collections::IMap<HSTRING, IInspectable*>> map;
+        ComPtr<IInspectable> value;
+        ComPtr<ABI::Windows::Foundation::IPropertyValue> property;
+        HString moved;
+        if (FAILED(data->get_LocalSettings(&container)) || FAILED(container->get_Values(&set)) ||
+            FAILED(set.As(&map)) || FAILED(map->Lookup(HStringReference(L"__ctr2shim_test_moved").Get(), &value)) ||
+            FAILED(value.As(&property)) || FAILED(property->GetString(moved.GetAddressOf())) ||
+            wcscmp(moved.GetRawBuffer(nullptr), L"yes") != 0)
+            return 73;
+        std::error_code error;
+        if (!std::filesystem::exists(EnvironmentPath(L"LOCALAPPDATA") / L"ctr2" / L"Local" / L"settings.json", error))
+            return 74; // Copied, not moved.
+        std::filesystem::remove(ini, error);
+        return 0;
+    }
     if (!(GetFileAttributesW(text.c_str()) & FILE_ATTRIBUTE_DIRECTORY)) return 9;
     std::wstring file = text + L"\\shim-test.tmp";
     HANDLE handle = CreateFileW(file.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);

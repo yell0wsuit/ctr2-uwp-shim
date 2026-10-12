@@ -113,6 +113,9 @@ foreach ($item in $encoded | Sort-Object { $_.FullName.Length } -Descending) {
     if ($decoded.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) { throw "Cannot decode asset name: $($item.FullName)" }
     Move-Item -LiteralPath $item.FullName -Destination (Join-Path ([IO.Path]::GetDirectoryName($item.FullName)) $decoded) -Force
 }
+# Settings template, copied once so later edits survive re-staging.
+$settings = Join-Path $destinationPath 'ctr2shim.ini'
+if (-not (Test-Path -LiteralPath $settings)) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'ctr2shim.ini') -Destination $settings }
 foreach ($name in @('ctr2shim.dll', 'd3dcompiler_47.dll')) {
     Copy-AtomicDll (Join-Path $build $name) (Join-Path $destinationPath $name)
 }
