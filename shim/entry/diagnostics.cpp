@@ -54,6 +54,21 @@ void LogThreadStorage() noexcept {
         index, vector, blocks[0], index < 8 ? blocks[index] : 0, values[0], values[1], values[2], values[3], values[4],
         values[5]);
 }
+// Names the module holding an address and the offset into it; the offset
+// matches a disassembly at any load address. "?" outside every module.
+static void DescribeAddress(DWORD address, wchar_t (&module)[64], DWORD& rva) noexcept {
+    wcscpy_s(module, L"?");
+    rva = address;
+    HMODULE handle{};
+    wchar_t path[MAX_PATH]{};
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            reinterpret_cast<LPCWSTR>(address), &handle) ||
+        !GetModuleFileNameW(handle, path, MAX_PATH))
+        return;
+    const auto* name = wcsrchr(path, L'\\');
+    wcsncpy_s(module, name ? name + 1 : path, _TRUNCATE);
+    rva = address - reinterpret_cast<DWORD>(handle);
+}
 static LONG CALLBACK LogFault(EXCEPTION_POINTERS* fault) {
     if (fault->ExceptionRecord->ExceptionCode == 0x4001000a) {
         LogAngleError(fault);
@@ -102,8 +117,11 @@ static LONG CALLBACK LogFault(EXCEPTION_POINTERS* fault) {
         if (!ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(frame), words, sizeof(words), &bytes) ||
             bytes != sizeof(words))
             break;
-        Log("FAIL", "frame[%u] ebp=%08lx return=%08lx args=%08lx,%08lx,%08lx,%08lx", i, frame, words[1], words[2],
-            words[3], words[4], words[5]);
+        wchar_t module[64];
+        DWORD rva;
+        DescribeAddress(words[1], module, rva);
+        Log("FAIL", "frame[%u] ebp=%08lx return=%08lx (%ls+%08lx) args=%08lx,%08lx,%08lx,%08lx", i, frame, words[1],
+            module, rva, words[2], words[3], words[4], words[5]);
         if (words[0] <= frame || words[0] - frame > 0x100000) break;
         frame = words[0];
     }
