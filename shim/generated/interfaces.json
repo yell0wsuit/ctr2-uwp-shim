@@ -13,7 +13,9 @@
       "ABI::Windows::UI::Xaml::Controls::IControl",
       "ABI::Windows::UI::Xaml::Controls::ISwapChainPanel",
       "ABI::Windows::UI::Xaml::Controls::IGrid",
-      "ABI::Windows::UI::Xaml::Controls::IPanel"
+      "ABI::Windows::UI::Xaml::Controls::IPanel",
+      "ABI::Windows::UI::Xaml::Controls::IMediaElement",
+      "ABI::Windows::UI::Xaml::Controls::IMediaElement2"
     ]
   },
   "coreapp.h": {

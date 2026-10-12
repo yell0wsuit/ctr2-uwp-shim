@@ -1,3 +1,9 @@
+// IMediaElement's ABI still declares the deprecated PlayToSource property.
+#ifdef __clang__
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#else
+#pragma warning(disable : 4996)
+#endif
 #include "element.h"
 #include "generated/controls.h"
 #include "com/factory.h"
@@ -83,14 +89,135 @@ HRESULT MakeGrid(IInspectable** value) {
     grid->Release();
     return hr;
 }
-class Page final : public Element<Page, DefaultIPage, DefaultIContentControl, DefaultIControl, DefaultIPageOverrides> {
+// MovieMgrPage's intro video. Playback is not implemented: the element keeps its
+// settings and accepts transport calls, and the page's own 3-second
+// DispatcherTimer stops it and returns to MainPage.
+class MediaElement final : public Element<MediaElement, DefaultIMediaElement, DefaultIMediaElement2> {
+    ComPtr<ABI::Windows::Foundation::IUriRuntimeClass> source_;
+    boolean autoPlay_ = true;
+    ABI::Windows::UI::Xaml::Media::Stretch stretch_ = ABI::Windows::UI::Xaml::Media::Stretch_Uniform;
+
+public:
+    static constexpr const wchar_t* Name = L"Windows.UI.Xaml.Controls.MediaElement";
+    explicit MediaElement(IInspectable* outer) : Element(outer) {}
+    HRESULT STDMETHODCALLTYPE get_Source(ABI::Windows::Foundation::IUriRuntimeClass** value) override {
+        if (!value) return E_POINTER;
+        return source_.CopyTo(value);
+    }
+    HRESULT STDMETHODCALLTYPE put_Source(ABI::Windows::Foundation::IUriRuntimeClass* value) override {
+        source_ = value;
+        HSTRING uri{};
+        if (value) value->get_AbsoluteUri(&uri);
+        Log("TRACE", "MediaElement Source=%ls (playback not implemented)", WindowsGetStringRawBuffer(uri, nullptr));
+        WindowsDeleteString(uri);
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_AutoPlay(boolean* value) override {
+        if (!value) return E_POINTER;
+        *value = autoPlay_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_AutoPlay(boolean value) override {
+        autoPlay_ = value;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_CurrentState(ABI::Windows::UI::Xaml::Media::MediaElementState* value) override {
+        if (!value) return E_POINTER;
+        *value = source_ ? ABI::Windows::UI::Xaml::Media::MediaElementState_Stopped
+                         : ABI::Windows::UI::Xaml::Media::MediaElementState_Closed;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE Play() override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE Pause() override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE Stop() override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE get_Stretch(ABI::Windows::UI::Xaml::Media::Stretch* value) override {
+        if (!value) return E_POINTER;
+        *value = stretch_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE put_Stretch(ABI::Windows::UI::Xaml::Media::Stretch value) override {
+        stretch_ = value;
+        return S_OK;
+    }
+};
+HRESULT MakeMediaElement(IInspectable** value) {
+    if (!value) return E_POINTER;
+    *value = nullptr;
+    IMediaElement* media = nullptr;
+    auto hr = Compose<MediaElement>(nullptr, nullptr, &media);
+    if (FAILED(hr)) return hr;
+    hr = media->QueryInterface(IID_PPV_ARGS(value));
+    media->Release();
+    return hr;
+}
+// Lets a Frame tell the shim Page it hosts which frame that is (Page.Frame).
+// The Frame clears it before dropping the page; the page never owns the frame.
+struct __declspec(uuid("ce92a3c3-5de3-4473-9528-b14b510702c0")) IHostedPage : public IUnknown {
+    virtual void STDMETHODCALLTYPE SetHostFrame(IFrame* frame) = 0;
+};
+static void SetHostFrame(IInspectable* page, IFrame* frame) {
+    ComPtr<IHostedPage> hosted;
+    if (page && SUCCEEDED(page->QueryInterface(IID_PPV_ARGS(&hosted)))) hosted->SetHostFrame(frame);
+}
+class NavigationArgs final
+    : public RuntimeClass<RuntimeClassFlags<WinRt>, ABI::Windows::UI::Xaml::Navigation::INavigationEventArgs> {
+    InspectableClass(L"Windows.UI.Xaml.Navigation.NavigationEventArgs", BaseTrust);
+    ComPtr<IInspectable> content_, parameter_;
+    Wrappers::HString typeName_;
+    TypeKind typeKind_;
+    ABI::Windows::UI::Xaml::Navigation::NavigationMode mode_;
+    ComPtr<ABI::Windows::Foundation::IUriRuntimeClass> uri_;
+
+public:
+    NavigationArgs(IInspectable* content, IInspectable* parameter, const TypeName& type,
+                   ABI::Windows::UI::Xaml::Navigation::NavigationMode mode)
+        : content_(content), parameter_(parameter), typeKind_(type.Kind), mode_(mode) {
+        typeName_.Set(type.Name);
+    }
+    HRESULT STDMETHODCALLTYPE get_Content(IInspectable** value) override {
+        if (!value) return E_POINTER;
+        return content_.CopyTo(value);
+    }
+    HRESULT STDMETHODCALLTYPE get_Parameter(IInspectable** value) override {
+        if (!value) return E_POINTER;
+        return parameter_.CopyTo(value);
+    }
+    HRESULT STDMETHODCALLTYPE get_SourcePageType(TypeName* value) override {
+        if (!value) return E_POINTER;
+        value->Kind = typeKind_;
+        return typeName_.CopyTo(&value->Name);
+    }
+    HRESULT STDMETHODCALLTYPE get_NavigationMode(ABI::Windows::UI::Xaml::Navigation::NavigationMode* value) override {
+        if (!value) return E_POINTER;
+        *value = mode_;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_Uri(ABI::Windows::Foundation::IUriRuntimeClass** value) override {
+        if (!value) return E_POINTER;
+        return uri_.CopyTo(value);
+    }
+    HRESULT STDMETHODCALLTYPE put_Uri(ABI::Windows::Foundation::IUriRuntimeClass* value) override {
+        uri_ = value;
+        return S_OK;
+    }
+};
+class Page final
+    : public Element<Page, DefaultIPage, DefaultIContentControl, DefaultIControl, DefaultIPageOverrides, IHostedPage> {
     ComPtr<IInspectable> content_;
     ABI::Windows::UI::Xaml::Navigation::NavigationCacheMode cache_ =
         ABI::Windows::UI::Xaml::Navigation::NavigationCacheMode_Disabled;
+    IFrame* frame_ = nullptr;
 
 public:
     static constexpr const wchar_t* Name = L"Windows.UI.Xaml.Controls.Page";
     explicit Page(IInspectable* outer) : Element(outer) {}
+    void STDMETHODCALLTYPE SetHostFrame(IFrame* frame) override { frame_ = frame; }
+    HRESULT STDMETHODCALLTYPE get_Frame(IFrame** value) override {
+        if (!value) return E_POINTER;
+        *value = frame_;
+        if (frame_) frame_->AddRef();
+        return S_OK;
+    }
     HRESULT STDMETHODCALLTYPE
     get_NavigationCacheMode(ABI::Windows::UI::Xaml::Navigation::NavigationCacheMode* value) override {
         if (!value) return E_POINTER;
@@ -137,11 +264,56 @@ public:
     }
 };
 class Frame final : public Element<Frame, DefaultIFrame, DefaultIContentControl, DefaultIControl, INavigate> {
+    struct Entry {
+        ComPtr<IInspectable> page, parameter;
+        Wrappers::HString typeName;
+        TypeKind typeKind = TypeKind_Custom;
+    };
     ComPtr<IInspectable> content_;
+    Entry current_;
+    // Back entries keep their page instances, as if every page used
+    // NavigationCacheMode.Required: GoBack returns to the same MainPage, which
+    // owns the game's swap chain panel, instead of constructing a new one.
+    std::vector<Entry> back_;
+
+    static HRESULT CallOverride(IInspectable* page, bool to, IInspectable* content, const Entry& entry,
+                                ABI::Windows::UI::Xaml::Navigation::NavigationMode mode) {
+        ComPtr<IPageOverrides> overrides;
+        if (!page || FAILED(page->QueryInterface(IID_PPV_ARGS(&overrides)))) return S_OK;
+        TypeName type{entry.typeName.Get(), entry.typeKind};
+        auto args = Make<NavigationArgs>(content, entry.parameter.Get(), type, mode);
+        if (!args) return E_OUTOFMEMORY;
+        auto hr = to ? overrides->OnNavigatedTo(args.Get()) : overrides->OnNavigatedFrom(args.Get());
+        if (FAILED(hr)) Log("FAIL", "Page OnNavigated%s hr=%08lx", to ? "To" : "From", hr);
+        return hr;
+    }
+    // XAML order: the old page's OnNavigatedFrom, the content swap, then the new
+    // page's OnNavigatedTo; Loaded follows from the UI queue. On a failed
+    // OnNavigatedFrom nothing changes and `next` is left intact.
+    HRESULT Show(Entry& next, ABI::Windows::UI::Xaml::Navigation::NavigationMode mode) {
+        auto hr = CallOverride(content_.Get(), false, next.page.Get(), next, mode);
+        if (FAILED(hr)) return hr;
+        if (content_) {
+            if (mode == ABI::Windows::UI::Xaml::Navigation::NavigationMode_Back)
+                SetHostFrame(content_.Get(), nullptr); // Dropped from the frame.
+            else
+                back_.push_back(std::move(current_));
+        }
+        content_ = next.page;
+        current_ = std::move(next);
+        SetHostFrame(content_.Get(), this);
+        hr = CallOverride(content_.Get(), true, content_.Get(), current_, mode);
+        if (FAILED(hr)) return hr;
+        return IsWindowVisible(HostWindow()) ? QueueElementLoaded(content_.Get()) : S_OK;
+    }
 
 public:
     static constexpr const wchar_t* Name = L"Windows.UI.Xaml.Controls.Frame";
     explicit Frame(IInspectable* outer) : Element(outer) {}
+    ~Frame() {
+        SetHostFrame(content_.Get(), nullptr);
+        for (auto& entry : back_) SetHostFrame(entry.page.Get(), nullptr);
+    }
     HRESULT STDMETHODCALLTYPE get_Content(IInspectable** value) override {
         if (!value) return E_POINTER;
         return content_.CopyTo(value);
@@ -152,8 +324,22 @@ public:
     }
     HRESULT STDMETHODCALLTYPE get_CanGoBack(boolean* value) override {
         if (!value) return E_POINTER;
-        *value = false;
+        *value = !back_.empty();
         return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE get_BackStackDepth(INT32* value) override {
+        if (!value) return E_POINTER;
+        *value = static_cast<INT32>(back_.size());
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GoBack() override {
+        if (back_.empty()) return E_ILLEGAL_METHOD_CALL;
+        Log("TRACE", "Frame::GoBack(%ls)", back_.back().typeName.GetRawBuffer(nullptr));
+        auto entry = std::move(back_.back());
+        back_.pop_back();
+        auto hr = Show(entry, ABI::Windows::UI::Xaml::Navigation::NavigationMode_Back);
+        if (entry.page) back_.push_back(std::move(entry)); // OnNavigatedFrom refused; restore.
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE get_CanGoForward(boolean* value) override {
         if (!value) return E_POINTER;
@@ -163,7 +349,7 @@ public:
     HRESULT STDMETHODCALLTYPE Navigate(TypeName type, boolean* result) override {
         return Navigate(type, nullptr, result);
     }
-    HRESULT STDMETHODCALLTYPE Navigate(TypeName type, IInspectable*, boolean* result) override {
+    HRESULT STDMETHODCALLTYPE Navigate(TypeName type, IInspectable* parameter, boolean* result) override {
         if (!result) return E_POINTER;
         *result = false;
         Log("TRACE", "Frame::Navigate(%ls)", WindowsGetStringRawBuffer(type.Name, nullptr));
@@ -183,11 +369,13 @@ public:
         Log("TRACE", "Frame page activation returned %08lx", hr);
         if (FAILED(hr)) return hr;
         if (!page) return E_UNEXPECTED;
-        content_ = page;
-        if (IsWindowVisible(HostWindow())) {
-            hr = QueueElementLoaded(page.Get());
-            if (FAILED(hr)) return hr;
-        }
+        Entry next;
+        next.page = page;
+        next.parameter = parameter;
+        next.typeName.Set(type.Name);
+        next.typeKind = type.Kind;
+        hr = Show(next, ABI::Windows::UI::Xaml::Navigation::NavigationMode_New);
+        if (FAILED(hr)) return hr;
         *result = true;
         return S_OK;
     }

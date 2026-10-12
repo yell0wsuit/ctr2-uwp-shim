@@ -44,6 +44,7 @@ extern "C" HRESULT WINAPI ShimGetFactory(HSTRING name, IActivationFactory** fact
             wcscmp(text, L"Windows.UI.Xaml.Controls.UserControl") == 0)
             return ctr2::MakeControlFactory(text, factory);
         if (wcscmp(text, L"Windows.UI.Xaml.Application") == 0) return ctr2::MakeApplicationFactory(factory);
+        if (wcscmp(text, L"Windows.UI.Xaml.DispatcherTimer") == 0) return ctr2::MakeDispatcherTimerFactory(factory);
         if (wcscmp(text, L"Windows.UI.Core.CoreCursor") == 0) return ctr2::MakeCursorFactory(factory);
         if (wcscmp(text, L"Windows.System.Threading.ThreadPoolTimer") == 0)
             return ctr2::MakeThreadPoolFactory(true, factory);

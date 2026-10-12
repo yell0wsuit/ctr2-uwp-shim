@@ -11,6 +11,7 @@
 namespace ctr2 {
 HRESULT MakePanel(IInspectable** value);
 HRESULT MakeGrid(IInspectable** value);
+HRESULT MakeMediaElement(IInspectable** value);
 HRESULT QueueElementLoaded(IInspectable* value);
 HRESULT DeliverElementLoaded(IInspectable* object);
 HRESULT CurrentApplication(ABI::Windows::UI::Xaml::IApplication** value);
@@ -70,7 +71,7 @@ class Element : public Composable<Derived, Primary, ABI::Windows::UI::Xaml::Defa
                             Interfaces...>;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::IRoutedEventHandler> loaded_;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::ISizeChangedEventHandler> resized_;
-    Microsoft::WRL::ComPtr<IInspectable> panel_, grid_;
+    Microsoft::WRL::ComPtr<IInspectable> panel_, grid_, media_;
     Microsoft::WRL::Wrappers::HString name_;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::Input::IPointerEventHandler> eventPointerPressed_;
     Microsoft::WRL::EventSource<ABI::Windows::UI::Xaml::Input::IPointerEventHandler> eventPointerMoved_;
@@ -279,6 +280,14 @@ public:
                 if (FAILED(hr)) return hr;
             }
             return grid_.CopyTo(value);
+        }
+        // MovieMgrPage.InitializeComponent safe_casts this name to MediaElement^.
+        if (wcscmp(text, L"mediaElement") == 0) {
+            if (!media_) {
+                auto hr = MakeMediaElement(&media_);
+                if (FAILED(hr)) return hr;
+            }
+            return media_.CopyTo(value);
         }
         Log("FAIL", "unknown named element %ls", text);
         return S_OK;
