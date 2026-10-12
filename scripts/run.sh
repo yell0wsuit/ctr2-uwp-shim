@@ -25,6 +25,20 @@ wine=${WINE:-"$HOME/Applications/Wine Devel.app/Contents/Resources/wine/bin/wine
 # A crash otherwise opens Wine's crash dialog, which keeps the process alive
 # until closed and stalls the relaunch below; print the backtrace and exit.
 "$wine" reg add 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /t REG_DWORD /d 0 /f > /dev/null 2>&1 || true
+# Retina mode gives Windows programs the display's real pixels (otherwise macOS
+# stretches the picture 2x), and 192 DPI keeps the window its usual size.
+# CTR2_RETINA=0 turns this off. Wine reads both when its display processes
+# start, so a change restarts the prefix's wineserver once.
+retina=${CTR2_RETINA:-1}
+marker="$WINEPREFIX/.ctr2-retina"
+if [[ "$(cat "$marker" 2>/dev/null)" != "$retina" ]]; then
+  if [[ "$retina" == 0 ]]; then mode=n dpi=96; else mode=y dpi=192; fi
+  "$wine" reg add 'HKCU\Software\Wine\Mac Driver' /v RetinaMode /t REG_SZ /d "$mode" /f > /dev/null 2>&1
+  "$wine" reg add 'HKCU\Control Panel\Desktop' /v LogPixels /t REG_DWORD /d "$dpi" /f > /dev/null 2>&1
+  "$(dirname "$wine")/wineserver" -k 2> /dev/null || true
+  "$(dirname "$wine")/wineserver" -w 2> /dev/null || true
+  echo "$retina" > "$marker"
+fi
 cd "$game"
 # Wine 11 WoW64 sometimes kills the process inside wined3d's first OpenGL
 # setup ("Exception frame is not in stack limits"). That startup death leaves

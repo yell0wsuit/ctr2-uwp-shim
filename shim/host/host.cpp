@@ -122,6 +122,23 @@ static void ForwardWindowMessage(UINT message, WPARAM wparam, LPARAM lparam) {
         UpdateActivation(message == WM_ACTIVATE ? LOWORD(wparam) : WA_ACTIVE);
     });
 }
+// The game sees physical pixels (scale 1) and scales its art to the window.
+// A DPI-unaware window would be stretched by Windows at high scale factors,
+// and by Wine in Retina mode, which blurs it. Windows 10 APIs, looked up at
+// run time for older systems. Returns the system DPI.
+static UINT EnableDpiAwareness() noexcept {
+    auto* user32 = GetModuleHandleW(L"user32.dll");
+    using SetAwareness = BOOL(WINAPI*)(HANDLE);
+    using SystemDpi = UINT(WINAPI*)();
+    auto set = reinterpret_cast<SetAwareness>(GetProcAddress(user32, "SetProcessDpiAwarenessContext"));
+    auto get = reinterpret_cast<SystemDpi>(GetProcAddress(user32, "GetDpiForSystem"));
+    // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+    if (set && !set(reinterpret_cast<HANDLE>(static_cast<INT_PTR>(-4))))
+        Log("INFO", "SetProcessDpiAwarenessContext error=%lu", GetLastError());
+    const UINT dpi = get ? get() : 96;
+    Log("INFO", "host dpi=%u", dpi);
+    return dpi;
+}
 static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
     PointerHostMessage(message, wparam, lparam);
     placement.OnMessage(message, wparam);
@@ -140,6 +157,12 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARA
     if (message == WM_SETCURSOR && LOWORD(lparam) == HTCLIENT) {
         SetCursor(HostCursor());
         return TRUE;
+    }
+    if (message == 0x02E0) { // WM_DPICHANGED: moved to a display with another scale.
+        const auto* suggested = reinterpret_cast<const RECT*>(lparam);
+        SetWindowPos(hwnd, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
+                     suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
+        return 0;
     }
     if (message == WM_SIZE && wparam != SIZE_MINIMIZED) {
         // Surfaces fill the client area; DXGI stretches each buffer to its window.
@@ -255,7 +278,21 @@ HRESULT RunHost(const std::function<HRESULT()>& initialize) {
     surface.lpszClassName = SurfaceClass;
     if (!RegisterClassW(&surface) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
         return HRESULT_FROM_WIN32(GetLastError());
-    RECT rect{0, 0, 1024, 768};
+    // 1024x768 at 100% scale, shrunk if needed to fit the work area.
+    const UINT dpi = EnableDpiAwareness();
+    RECT work{};
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+    RECT frame{};
+    AdjustWindowRect(&frame, WS_OVERLAPPEDWINDOW, FALSE);
+    LONG width = MulDiv(1024, static_cast<int>(dpi), 96), height = MulDiv(768, static_cast<int>(dpi), 96);
+    const LONG roomX = work.right - work.left - (frame.right - frame.left);
+    const LONG roomY = work.bottom - work.top - (frame.bottom - frame.top);
+    if (roomX > 0 && roomY > 0 && (width > roomX || height > roomY)) {
+        const double fit = width * roomY > height * roomX ? double(roomX) / width : double(roomY) / height;
+        width = static_cast<LONG>(width * fit);
+        height = static_cast<LONG>(height * fit);
+    }
+    RECT rect{0, 0, width, height};
     AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
     window = CreateWindowExW(0, cls.lpszClassName, L"Cut the Rope 2", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                              CW_USEDEFAULT, CW_USEDEFAULT, rect.right - rect.left, rect.bottom - rect.top, nullptr,
