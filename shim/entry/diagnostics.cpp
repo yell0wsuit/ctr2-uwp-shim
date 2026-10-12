@@ -117,11 +117,11 @@ static LONG CALLBACK LogFault(EXCEPTION_POINTERS* fault) {
         if (!ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(frame), words, sizeof(words), &bytes) ||
             bytes != sizeof(words))
             break;
-        wchar_t module[64];
+        wchar_t caller[64];
         DWORD rva;
-        DescribeAddress(words[1], module, rva);
+        DescribeAddress(words[1], caller, rva);
         Log("FAIL", "frame[%u] ebp=%08lx return=%08lx (%ls+%08lx) args=%08lx,%08lx,%08lx,%08lx", i, frame, words[1],
-            module, rva, words[2], words[3], words[4], words[5]);
+            caller, rva, words[2], words[3], words[4], words[5]);
         if (words[0] <= frame || words[0] - frame > 0x100000) break;
         frame = words[0];
     }
