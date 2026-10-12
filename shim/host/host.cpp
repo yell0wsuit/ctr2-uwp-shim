@@ -68,6 +68,17 @@ static void UpdateActivation(WPARAM activation) {
     CoreHostMessage(WM_ACTIVATE, state, 0);
     XamlHostMessage(WM_ACTIVATE, state, 0);
 }
+// XAML notifications belong to the UI queue. Delivering inside ShowWindow
+// reenters OnLaunched before startup has finished.
+static void ForwardWindowMessage(UINT message, WPARAM wparam, LPARAM lparam) {
+    PostHostWork(0, [message, wparam, lparam] {
+        if (message != WM_ACTIVATE) {
+            CoreHostMessage(message, wparam, lparam);
+            XamlHostMessage(message, wparam, lparam);
+        }
+        UpdateActivation(message == WM_ACTIVATE ? LOWORD(wparam) : WA_ACTIVE);
+    });
+}
 static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
     PointerHostMessage(message, wparam, lparam);
     if (message == CreateSurfaceMessage) return reinterpret_cast<LRESULT>(CreateSurfaceOnHostThread());
@@ -86,17 +97,26 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARA
         Log("TRACE", "host activation state=%u other=%p class=%ls foreground=%p process=%lu", LOWORD(wparam),
             reinterpret_cast<HWND>(lparam), name, foreground, process);
     }
-    if (message == WM_ACTIVATE || message == WM_SIZE || message == WM_SHOWWINDOW) {
-        // XAML notifications belong to the UI queue. Delivering inside ShowWindow
-        // reenters OnLaunched before startup has finished.
-        PostHostWork(0, [message, wparam, lparam] {
-            if (message != WM_ACTIVATE) {
-                CoreHostMessage(message, wparam, lparam);
-                XamlHostMessage(message, wparam, lparam);
-            }
-            UpdateActivation(message == WM_ACTIVATE ? LOWORD(wparam) : WA_ACTIVE);
-        });
+    // While the frame is being dragged the surfaces stretch the current picture;
+    // the game hears only the final size. It rebuilds its renderer behind a
+    // "Loading" screen on every size change.
+    static bool sizing = false, sizePending = false;
+    if (message == WM_ENTERSIZEMOVE) sizing = true;
+    if (message == WM_SIZE && sizing) {
+        sizePending = true;
+        return 0;
     }
+    if (message == WM_EXITSIZEMOVE) {
+        sizing = false;
+        if (sizePending) {
+            sizePending = false;
+            RECT client{};
+            GetClientRect(hwnd, &client);
+            ForwardWindowMessage(WM_SIZE, SIZE_RESTORED, MAKELPARAM(client.right, client.bottom));
+        }
+    }
+    if (message == WM_ACTIVATE || message == WM_SIZE || message == WM_SHOWWINDOW)
+        ForwardWindowMessage(message, wparam, lparam);
     if (message == WorkMessage) {
         std::function<void()> work;
         {

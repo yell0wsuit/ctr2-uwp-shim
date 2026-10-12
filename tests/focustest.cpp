@@ -25,6 +25,7 @@ static int failures = 0;
     } while (0)
 static std::vector<int> states; // 1 = active, 0 = deactivated, for CoreWindow
 static std::vector<int> xamlStates;
+static std::vector<std::pair<float, float>> sizes; // CoreWindow SizeChanged
 static ComPtr<ICoreDispatcher> dispatcher;
 static HWND host;
 // Runs `step` after the UI queue has drained the work posted before it.
@@ -70,6 +71,14 @@ int main() {
                 return S_OK;
             });
         CHECK(SUCCEEDED(core->add_Activated(activated.Get(), &token)));
+        auto resized = Callback<ABI::Windows::Foundation::ITypedEventHandler<CoreWindow*, WindowSizeChangedEventArgs*>>(
+            [](ICoreWindow*, IWindowSizeChangedEventArgs* args) -> HRESULT {
+                ABI::Windows::Foundation::Size size{};
+                args->get_Size(&size);
+                sizes.emplace_back(size.Width, size.Height);
+                return S_OK;
+            });
+        CHECK(SUCCEEDED(core->add_SizeChanged(resized.Get(), &token)));
         auto xamlActivated =
             Callback<IWindowActivatedEventHandler>([](IInspectable*, IWindowActivatedEventArgs* args) -> HRESULT {
                 CoreWindowActivationState state{};
@@ -104,7 +113,31 @@ int main() {
                     Then([] {
                         CHECK((states == std::vector<int>{1, 0, 1}));
                         CHECK(xamlStates == states);
-                        PostQuitMessage(0);
+                        // Dragging the frame: the game rebuilds its renderer (and shows
+                        // Loading) on every size change, so it hears only the final size.
+                        sizes.clear();
+                        SendMessageW(host, WM_ENTERSIZEMOVE, 0, 0);
+                        for (int width : {700, 800, 900})
+                            SetWindowPos(host, nullptr, 0, 0, width, 600, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+                        Then([] {
+                            CHECK(sizes.empty());
+                            SendMessageW(host, WM_EXITSIZEMOVE, 0, 0);
+                            Then([] {
+                                RECT client{};
+                                GetClientRect(host, &client);
+                                CHECK(sizes.size() == 1);
+                                CHECK(!sizes.empty() && sizes.back().first == static_cast<float>(client.right) &&
+                                      sizes.back().second == static_cast<float>(client.bottom));
+                                // A move without resizing changes nothing.
+                                sizes.clear();
+                                SendMessageW(host, WM_ENTERSIZEMOVE, 0, 0);
+                                SendMessageW(host, WM_EXITSIZEMOVE, 0, 0);
+                                Then([] {
+                                    CHECK(sizes.empty());
+                                    PostQuitMessage(0);
+                                });
+                            });
+                        });
                     });
                 });
             });
