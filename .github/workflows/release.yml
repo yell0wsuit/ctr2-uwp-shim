@@ -61,6 +61,8 @@ jobs:
                   persist-credentials: false
 
             - name: Configure x86 build
+              env:
+                  RELEASE_TAG: ${{ steps.version.outputs.tag }}
               run: |
                   $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
                   $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json | ConvertFrom-Json
@@ -75,7 +77,7 @@ jobs:
                       throw "CMake does not support installed Visual Studio version $majorVersion; update CMake on the runner."
                   }
                   Write-Host "Using $generator at $($installation.installationPath)"
-                  cmake -S . -B build/release -G $generator -A Win32 "-DCMAKE_GENERATOR_INSTANCE=$($installation.installationPath)"
+                  cmake -S . -B build/release -G $generator -A Win32 "-DCMAKE_GENERATOR_INSTANCE=$($installation.installationPath)" "-DCTR2SHIM_VERSION=$env:RELEASE_TAG"
                   if ($LASTEXITCODE -ne 0) { throw 'Failed to configure the x86 build.' }
 
             - name: Build

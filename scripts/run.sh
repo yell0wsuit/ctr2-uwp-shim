@@ -27,9 +27,9 @@ cd "$game"
 # "CreateDXGIFactory1 begin" without a result in the log; retry only that case.
 status=0
 for attempt in 1 2 3; do
-  start=$(wc -l < ctr2shim.log 2>/dev/null || echo 0)
   "$wine" Game.exe "${flags[@]}" && exit 0 || status=$?
-  run=$(tail -n +$((start + 1)) ctr2shim.log 2>/dev/null || true)
+  # Wine launches always log, and each logging run starts a new ctr2shim.log.
+  run=$(cat ctr2shim.log 2>/dev/null || true)
   if grep -q 'CreateDXGIFactory1 begin' <<< "$run" && ! grep -q 'CreateDXGIFactory1 hr=' <<< "$run"; then
     echo "Wine graphics startup crashed (attempt $attempt/3); relaunching." >&2
     continue

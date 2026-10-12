@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(ctr2_wine LANGUAGES CXX)
+project(ctr2_wine LANGUAGES CXX RC)
 if(CMAKE_CROSSCOMPILING AND NOT EXISTS "${CMAKE_LINKER}")
   find_program(CTR2_LLD NAMES lld-link HINTS "/opt/homebrew/opt/lld/bin" REQUIRED)
   set(CMAKE_LINKER "${CTR2_LLD}")
@@ -14,13 +14,27 @@ set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT Embedded)
 add_compile_definitions(UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0603)
 add_compile_options(/W4 /EHsc /utf-8)
 add_link_options(/DEBUG /INCREMENTAL:NO)
+# Release builds pass their tag; local builds describe the git checkout. The
+# header is refreshed on every build, so it names the commit actually built.
+set(CTR2SHIM_VERSION "" CACHE STRING "Release tag (vYYYY.M.D or vYYYY.M.D-N); empty for local builds")
+find_package(Git QUIET)
+set(CTR2_GENERATED "${CMAKE_BINARY_DIR}/generated")
+add_custom_target(ctr2shim_version
+  COMMAND "${CMAKE_COMMAND}" "-DVERSION=${CTR2SHIM_VERSION}" "-DGIT=${GIT_EXECUTABLE}" "-DSOURCE_DIR=${CMAKE_SOURCE_DIR}"
+          "-DOUTPUT=${CTR2_GENERATED}/version.h" -P "${CMAKE_SOURCE_DIR}/cmake/version.cmake"
+  BYPRODUCTS "${CTR2_GENERATED}/version.h"
+  VERBATIM)
 add_executable(shimtest tests/shimtest.cpp)
 target_link_libraries(shimtest PRIVATE runtimeobject ole32)
 if(EXISTS "${CMAKE_SOURCE_DIR}/shim/registry.cpp")
-  add_library(ctr2shim SHARED shim/registry.cpp shim/log.cpp shim/options.cpp shim/gpu/dxgi_redirect.cpp shim/entry/iat_hook.cpp shim/entry/diagnostics.cpp shim/platform/threading.cpp shim/platform/hardware.cpp shim/platform/device_info.cpp shim/platform/data_reader.cpp shim/platform/application_view.cpp shim/platform/cursor.cpp shim/platform/visualization.cpp shim/platform/storage.cpp shim/platform/settings.cpp shim/stubs/vungle.cpp shim/stubs/store.cpp shim/stubs/notifications.cpp shim/stubs/xml.cpp shim/stubs/http.cpp shim/platform/display.cpp shim/platform/coreapp.cpp shim/platform/causality.cpp shim/platform/calendar.cpp shim/host/host.cpp shim/host/assets.cpp shim/host/placement.cpp shim/host/pointer.cpp shim/host/dispatcher.cpp shim/host/corewindow.cpp shim/xaml/application.cpp shim/xaml/controls.cpp shim/xaml/media.cpp shim/xaml/timer.cpp shim/xaml/window.cpp shim/ctr2shim.def)
-  target_include_directories(ctr2shim PRIVATE shim)
+  add_library(ctr2shim SHARED shim/registry.cpp shim/log.cpp shim/options.cpp shim/gpu/dxgi_redirect.cpp shim/entry/iat_hook.cpp shim/entry/diagnostics.cpp shim/platform/threading.cpp shim/platform/hardware.cpp shim/platform/device_info.cpp shim/platform/data_reader.cpp shim/platform/application_view.cpp shim/platform/cursor.cpp shim/platform/visualization.cpp shim/platform/storage.cpp shim/platform/settings.cpp shim/stubs/vungle.cpp shim/stubs/store.cpp shim/stubs/notifications.cpp shim/stubs/xml.cpp shim/stubs/http.cpp shim/platform/display.cpp shim/platform/coreapp.cpp shim/platform/causality.cpp shim/platform/calendar.cpp shim/host/host.cpp shim/host/assets.cpp shim/host/placement.cpp shim/host/pointer.cpp shim/host/dispatcher.cpp shim/host/corewindow.cpp shim/xaml/application.cpp shim/xaml/controls.cpp shim/xaml/media.cpp shim/xaml/timer.cpp shim/xaml/window.cpp shim/ctr2shim.def shim/version.rc)
+  target_include_directories(ctr2shim PRIVATE shim "${CTR2_GENERATED}")
+  add_dependencies(ctr2shim ctr2shim_version)
   target_link_libraries(ctr2shim PRIVATE runtimeobject ole32 oleaut32 dxgi d3d11 mfuuid shell32 shlwapi)
-  add_library(d3dcompiler_47 SHARED proxy/d3dcompiler_47/proxy.cpp proxy/d3dcompiler_47/thunks.cpp proxy/d3dcompiler_47/proxy.def)
+  add_library(d3dcompiler_47 SHARED proxy/d3dcompiler_47/proxy.cpp proxy/d3dcompiler_47/thunks.cpp proxy/d3dcompiler_47/proxy.def shim/version.rc)
+  target_include_directories(d3dcompiler_47 PRIVATE "${CTR2_GENERATED}")
+  target_compile_definitions(d3dcompiler_47 PRIVATE CTR2SHIM_PROXY)
+  add_dependencies(d3dcompiler_47 ctr2shim_version)
   target_link_libraries(d3dcompiler_47 PRIVATE ctr2shim)
 endif()
 add_executable(xamltest tests/xamltest.cpp)

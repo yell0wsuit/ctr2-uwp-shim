@@ -24,6 +24,20 @@ static const std::wstring& LogPath() noexcept {
     }();
     return path;
 }
+// Each logging run starts a new ctr2shim.log. The two before it are kept as
+// ctr2shim.1.log and ctr2shim.2.log; older ones are replaced. Runs without
+// logging leave them alone.
+static void RotateLogs(const std::wstring& path) noexcept {
+    static constexpr int kept = 2;
+    try {
+        const auto stem = path.substr(0, path.size() - 4); // Without ".log".
+        auto older = [&](int n) { return stem + L"." + std::to_wstring(n) + L".log"; };
+        for (int n = kept; n > 1; --n) MoveFileExW(older(n - 1).c_str(), older(n).c_str(), MOVEFILE_REPLACE_EXISTING);
+        MoveFileExW(path.c_str(), older(1).c_str(), MOVEFILE_REPLACE_EXISTING);
+    } catch (...) {
+        // Out of memory: append to the current log instead.
+    }
+}
 void Log(const char* level, const char* format, ...) noexcept {
     // Off unless --log or --trace (or their environment variables) is given.
     const auto& options = GetOptions();
@@ -40,6 +54,11 @@ void Log(const char* level, const char* format, ...) noexcept {
     OutputDebugStringA(line);
     const auto& path = LogPath();
     if (path.empty()) return;
+    static bool rotated = false;
+    if (!rotated) {
+        rotated = true;
+        RotateLogs(path);
+    }
     HANDLE file = CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
                               FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) return;
