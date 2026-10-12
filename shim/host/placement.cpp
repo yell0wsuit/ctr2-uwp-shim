@@ -21,6 +21,7 @@ void CreateSettingsFile(const std::wstring& path) {
                              "; Width/Height specify the game area; borders are added automatically.\r\n"
                              "; Examples: Width=1280 Height=720; Width=1366 Height=768; Width=1600 Height=900.\r\n"
                              "; X/Y specify window position in workspace coordinates.\r\n"
+                             "; Unsafe positions/sizes are clamped to the monitor work area and saved back.\r\n"
                              "; State: 0=windowed, 1=maximized, 2=fullscreen.\r\n"
                              "; Maximized/fullscreen retain Width/Height for returning to a normal window.\r\n"
                              "; After restarting in fullscreen, exiting returns to windowed mode.\r\n"
@@ -116,17 +117,24 @@ SIZE WindowPlacement::FrameSize() const {
 void WindowPlacement::FitMonitor() {
     MONITORINFO monitor{sizeof(MONITORINFO)};
     if (!GetMonitorInfoW(MonitorFromRect(&normal_.rcNormalPosition, MONITOR_DEFAULTTONEAREST), &monitor)) return;
+    // WINDOWPLACEMENT uses workspace coordinates, while rcWork is in screen
+    // coordinates. Account for taskbars on the top or left of this monitor.
+    RECT work = monitor.rcWork;
+    OffsetRect(&work, monitor.rcMonitor.left - monitor.rcWork.left, monitor.rcMonitor.top - monitor.rcWork.top);
     auto& rect = normal_.rcNormalPosition;
-    rect.right = rect.left + std::min(rect.right - rect.left, monitor.rcWork.right - monitor.rcWork.left);
-    rect.bottom = rect.top + std::min(rect.bottom - rect.top, monitor.rcWork.bottom - monitor.rcWork.top);
-    // SetWindowPlacement takes workspace coordinates and also moves windows
-    // back onto the desktop when their saved monitor has been disconnected.
+    const LONG width = std::min(rect.right - rect.left, work.right - work.left);
+    const LONG height = std::min(rect.bottom - rect.top, work.bottom - work.top);
+    rect.left = std::clamp(rect.left, work.left, work.right - width);
+    rect.top = std::clamp(rect.top, work.top, work.bottom - height);
+    rect.right = rect.left + width;
+    rect.bottom = rect.top + height;
 }
 void WindowPlacement::Activate() {
     ShowWindow(window_, activated_    ? (IsIconic(window_) ? SW_RESTORE : SW_SHOW)
                         : fullscreen_ ? SW_SHOW
                                       : static_cast<int>(normal_.showCmd));
     activated_ = true;
+    Save(); // Persist corrected settings immediately, even before the first move.
 }
 HRESULT WindowPlacement::SetFullscreen(bool value) {
     if (!IsWindow(window_)) return RO_E_CLOSED;
@@ -170,6 +178,13 @@ void WindowPlacement::Save() {
         if (!GetWindowPlacement(window_, &normal_)) return;
         Normalize(normal_);
     }
+    const RECT previous = normal_.rcNormalPosition;
+    FitMonitor();
+    if (!fullscreen_ && !IsIconic(window_) && !EqualRect(&previous, &normal_.rcNormalPosition)) {
+        changing_ = true;
+        SetWindowPlacement(window_, &normal_);
+        changing_ = false;
+    }
     const auto& rect = normal_.rcNormalPosition;
     const auto frame = FrameSize();
     const LONG state = fullscreen_ ? 2 : normal_.showCmd == SW_SHOWMAXIMIZED ? 1 : 0;
@@ -201,6 +216,7 @@ void WindowPlacement::OnMessage(UINT message, WPARAM wparam) {
     if (!changing_ && activated_ && (message == WM_MOVE || message == WM_SIZE))
         SetTimer(window_, SaveTimer, 300, nullptr);
     if (message == WM_EXITSIZEMOVE) Save();
+    if (message == WM_DISPLAYCHANGE && !fullscreen_) Save();
     if (message == WM_DISPLAYCHANGE && fullscreen_) {
         MONITORINFO monitor{sizeof(MONITORINFO)};
         if (GetMonitorInfoW(MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST), &monitor))

@@ -45,6 +45,8 @@ int wmain(int argc, wchar_t** argv) {
     if (argc != 3) return 1;
     const std::wstring action(argv[1]), mode(argv[2]);
     const bool full = mode == L"full" || mode == L"maxfull";
+    const bool clamped = mode == L"offscreen" || mode == L"above" || mode == L"bottomright" || mode == L"oversized" ||
+                         mode == L"negative";
     const bool maximized = mode == L"max" || mode == L"maxfull";
     wchar_t root[32768]{};
     if (!GetEnvironmentVariableW(L"CTR2SHIM_DATA", root, ARRAYSIZE(root))) return 1;
@@ -57,14 +59,30 @@ int wmain(int argc, wchar_t** argv) {
         if (mode == L"legacy") {
             CHECK(WritePrivateProfileStringW(L"window", L"Placement", L"80,90,640,480,0", file.c_str()));
         } else {
-            CHECK(WritePrivateProfileStringW(L"window", L"X", mode == L"offscreen" ? L"50000" : L"80", file.c_str()));
-            CHECK(WritePrivateProfileStringW(L"window", L"Y", mode == L"offscreen" ? L"50000" : L"90", file.c_str()));
-            const wchar_t* width = mode == L"overflow"      ? L"2147483647"
+            wchar_t edgeX[32]{}, edgeY[32]{};
+            swprintf_s(edgeX, L"%d", GetSystemMetrics(SM_CXSCREEN) - 20);
+            swprintf_s(edgeY, L"%d", GetSystemMetrics(SM_CYSCREEN) - 20);
+            CHECK(WritePrivateProfileStringW(L"window", L"X",
+                                             mode == L"offscreen"     ? L"50000"
+                                             : mode == L"bottomright" ? edgeX
+                                             : mode == L"negative"    ? L"-50000"
+                                                                      : L"80",
+                                             file.c_str()));
+            CHECK(WritePrivateProfileStringW(L"window", L"Y",
+                                             mode == L"offscreen"     ? L"50000"
+                                             : mode == L"bottomright" ? edgeY
+                                             : mode == L"above"       ? L"-20"
+                                             : mode == L"negative"    ? L"-50000"
+                                                                      : L"90",
+                                             file.c_str()));
+            const wchar_t* width = mode == L"oversized"     ? L"50000"
+                                   : mode == L"overflow"    ? L"2147483647"
                                    : mode == L"invalidsize" ? L"0"
                                    : mode == L"corrupt"     ? L"640,trailing"
                                                             : L"640";
             CHECK(WritePrivateProfileStringW(L"window", L"Width", width, file.c_str()));
-            CHECK(WritePrivateProfileStringW(L"window", L"Height", L"480", file.c_str()));
+            CHECK(WritePrivateProfileStringW(L"window", L"Height", mode == L"oversized" ? L"50000" : L"480",
+                                             file.c_str()));
             CHECK(WritePrivateProfileStringW(L"window", L"State",
                                              mode == L"invalidstate" ? L"3"
                                              : full                  ? L"2"
@@ -164,12 +182,25 @@ int wmain(int argc, wchar_t** argv) {
                 CHECK((IsZoomed(host) != FALSE) == (maximized && !full));
             } else {
                 CHECK(!fullscreen && !IsIconic(host) && !IsZoomed(host));
-                if (mode == L"offscreen") {
-                    RECT rect{}, intersection{};
+                if (clamped) {
+                    RECT rect{}, client{};
                     GetWindowRect(host, &rect);
                     MONITORINFO monitor{sizeof(MONITORINFO)};
                     CHECK(GetMonitorInfoW(MonitorFromWindow(host, MONITOR_DEFAULTTONEAREST), &monitor));
-                    CHECK(IntersectRect(&intersection, &rect, &monitor.rcWork));
+                    CHECK(rect.left >= monitor.rcWork.left && rect.top >= monitor.rcWork.top);
+                    CHECK(rect.right <= monitor.rcWork.right && rect.bottom <= monitor.rcWork.bottom);
+                    CHECK(GetClientRect(host, &client));
+                    WINDOWPLACEMENT placement{sizeof(WINDOWPLACEMENT)};
+                    CHECK(GetWindowPlacement(host, &placement));
+                    // Repairs must reach the INI on activation, without waiting for close.
+                    CHECK(static_cast<LONG>(GetPrivateProfileIntW(L"window", L"X", -1, file.c_str())) ==
+                          placement.rcNormalPosition.left);
+                    CHECK(static_cast<LONG>(GetPrivateProfileIntW(L"window", L"Y", -1, file.c_str())) ==
+                          placement.rcNormalPosition.top);
+                    CHECK(GetPrivateProfileIntW(L"window", L"Width", 0, file.c_str()) ==
+                          static_cast<UINT>(client.right));
+                    CHECK(GetPrivateProfileIntW(L"window", L"Height", 0, file.c_str()) ==
+                          static_cast<UINT>(client.bottom));
                 } else {
                     RECT client{};
                     GetClientRect(host, &client);
