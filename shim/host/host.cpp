@@ -6,6 +6,9 @@
 #include <mutex>
 #include <map>
 #include <deque>
+#include <filesystem>
+#include <vector>
+#include <algorithm>
 namespace ctr2 {
 void InitializeDiagnostics();
 void CoreHostMessage(UINT message, WPARAM wparam, LPARAM lparam);
@@ -159,6 +162,38 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARA
     }
     return DefWindowProcW(hwnd, message, wparam, lparam);
 }
+// UWP packages supply PNG shell icons rather than executable icon resources.
+static HICON LoadGameIcon(int width, int height) {
+    wchar_t executable[32768]{};
+    const DWORD length = GetModuleFileNameW(nullptr, executable, ARRAYSIZE(executable));
+    if (!length || length >= ARRAYSIZE(executable)) return nullptr;
+    const auto assets = std::filesystem::path(executable).parent_path() / L"Assets";
+    const int size = std::max(width, height);
+    const wchar_t* source = size <= 16   ? L"SmallLogo.targetsize-16.png"
+                            : size <= 32 ? L"SmallLogo.targetsize-32.png"
+                            : size <= 48 ? L"SmallLogo.targetsize-48.png"
+                                         : L"SmallLogo.targetsize-256.png";
+    for (const auto* name : {source, L"SmallLogo.targetsize-256.png"}) {
+        HANDLE file = CreateFileW((assets / name).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                  FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE) continue;
+        const DWORD sizeBytes = GetFileSize(file, nullptr);
+        // Bound the allocation for missing, corrupt, or unexpectedly large assets.
+        if (!sizeBytes || sizeBytes > 1024 * 1024) {
+            CloseHandle(file);
+            continue;
+        }
+        std::vector<BYTE> bytes(sizeBytes);
+        DWORD read{};
+        const bool loaded = ReadFile(file, bytes.data(), sizeBytes, &read, nullptr) && read == sizeBytes;
+        CloseHandle(file);
+        if (!loaded) continue;
+        HICON icon =
+            CreateIconFromResourceEx(bytes.data(), sizeBytes, TRUE, 0x00030000, width, height, LR_DEFAULTCOLOR);
+        if (icon) return icon;
+    }
+    return nullptr;
+}
 HRESULT RunHost(const std::function<HRESULT()>& initialize) {
     InitializeDiagnostics();
     if (window) return E_ILLEGAL_METHOD_CALL;
@@ -182,6 +217,10 @@ HRESULT RunHost(const std::function<HRESULT()>& initialize) {
                              CW_USEDEFAULT, CW_USEDEFAULT, rect.right - rect.left, rect.bottom - rect.top, nullptr,
                              nullptr, cls.hInstance, nullptr);
     if (!window) return HRESULT_FROM_WIN32(GetLastError());
+    HICON smallIcon = LoadGameIcon(GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON));
+    HICON largeIcon = LoadGameIcon(GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON));
+    if (smallIcon) SendMessageW(window, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(smallIcon));
+    if (largeIcon) SendMessageW(window, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(largeIcon));
     placement.Initialize(window);
     HRESULT hr = InitializeGraphicsRedirect();
     if (FAILED(hr)) Log("FAIL", "DXGI redirect initialization hr=%08lx", hr);
@@ -196,6 +235,8 @@ HRESULT RunHost(const std::function<HRESULT()>& initialize) {
         if (result == -1) hr = HRESULT_FROM_WIN32(GetLastError());
     }
     if (IsWindow(window)) DestroyWindow(window);
+    if (smallIcon) DestroyIcon(smallIcon);
+    if (largeIcon) DestroyIcon(largeIcon);
     {
         std::lock_guard<std::mutex> lock(queueMutex);
         window = nullptr;
