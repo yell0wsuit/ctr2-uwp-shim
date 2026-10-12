@@ -12,10 +12,12 @@ namespace {
 // Synthetic compatibility data, not a physical identifier or a cryptographic
 // signature/certificate. Fresh buffers prevent callers from changing the token.
 constexpr std::array<byte, 16> tokenId = {'c', 't', 'r', '2', '-', 'w', 'i', 'n', 'e', '-', 's', 'h', 'i', 'm', 0, 1};
-constexpr std::array<byte, 16> tokenSignature = {'c', 't', 'r', '2', '-', 'o', 'f', 'f',
-                                                 'l', 'i', 'n', 'e', '-', 's', 'i', 'g'};
-constexpr std::array<byte, 16> tokenCertificate = {'c', 't', 'r', '2', '-', 'o', 'f', 'f',
-                                                   'l', 'i', 'n', 'e', '-', 'c', 'r', 't'};
+constexpr std::array<byte, 16> tokenSignature = {
+    'c', 't', 'r', '2', '-', 'o', 'f', 'f', 'l', 'i', 'n', 'e', '-', 's', 'i', 'g',
+};
+constexpr std::array<byte, 16> tokenCertificate = {
+    'c', 't', 'r', '2', '-', 'o', 'f', 'f', 'l', 'i', 'n', 'e', '-', 'c', 'r', 't',
+};
 class TokenBuffer final
     : public RuntimeClass<RuntimeClassFlags<WinRtClassicComMix>, IBuffer, IBufferByteAccess, FtmBase> {
     InspectableClass(L"Windows.Storage.Streams.Buffer", BaseTrust);

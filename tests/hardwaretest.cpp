@@ -14,7 +14,7 @@ using ABI::Windows::Storage::Streams::IBuffer;
 using Windows::Storage::Streams::IBufferByteAccess;
 int main() {
     RoInitialize(RO_INIT_MULTITHREADED);
-    auto dll = LoadLibraryW(L"ctr2shim.dll");
+    auto* dll = LoadLibraryW(L"ctr2shim.dll");
     if (!dll) return 1;
     auto get = reinterpret_cast<HRESULT(WINAPI*)(HSTRING, IActivationFactory**)>(GetProcAddress(dll, "ShimGetFactory"));
     ComPtr<IActivationFactory> factory;
@@ -52,7 +52,7 @@ int main() {
             if (FAILED(access->Buffer(&bytes)) || !bytes) return 11;
             if (repeat == 0)
                 memcpy(initial[i].data(), bytes, 16);
-            else if (memcmp(initial[i].data(), bytes, 16))
+            else if (memcmp(initial[i].data(), bytes, 16) != 0)
                 return 12;
             if (buffers[i]->put_Length(17) != E_INVALIDARG || FAILED(buffers[i]->put_Length(8)) ||
                 FAILED(buffers[i]->get_Length(&size)) || size != 8)
@@ -61,7 +61,7 @@ int main() {
         }
     }
     const byte expectedId[16] = {'c', 't', 'r', '2', '-', 'w', 'i', 'n', 'e', '-', 's', 'h', 'i', 'm', 0, 1};
-    if (memcmp(initial[0].data(), expectedId, 16)) return 14;
+    if (memcmp(initial[0].data(), expectedId, 16) != 0) return 14;
     puts("hardwaretest: 0 failure(s)");
     return 0;
 }

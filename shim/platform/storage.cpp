@@ -86,7 +86,7 @@ public:
         CoTaskMemFree(path);
         root /= L"ctr2";
         try {
-            for (auto name : {L"Local", L"Roaming", L"Temp"}) std::filesystem::create_directories(root / name);
+            for (const auto* name : {L"Local", L"Roaming", L"Temp"}) std::filesystem::create_directories(root / name);
             local_ = Make<Folder>((root / L"Local").wstring());
             roaming_ = Make<Folder>((root / L"Roaming").wstring());
             temporary_ = Make<Folder>((root / L"Temp").wstring());

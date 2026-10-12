@@ -185,6 +185,7 @@ public:
         return point_.CopyTo(value);
     }
 };
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): allocation failure at DLL load is fatal anyway.
 static std::map<IInspectable*, PointerCallback> targets;
 static IInspectable* captureOwner;
 static IInspectable* activeTarget;
@@ -222,7 +223,7 @@ HRESULT ReleaseElementPointer(IInspectable* target) {
     return S_OK;
 }
 void RegisterPointerTarget(IInspectable* target, PointerCallback callback) { targets[target] = std::move(callback); }
-void UnregisterPointerTarget(IInspectable* target) {
+void UnregisterPointerTarget(IInspectable* target) noexcept {
     if (captureOwner == target) {
         captureOwner = nullptr;
         ReleaseCapture();

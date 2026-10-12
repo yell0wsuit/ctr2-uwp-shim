@@ -61,7 +61,7 @@ public:
 int main() {
     RoInitialize(RO_INIT_MULTITHREADED);
     startupStorage = 17;
-    auto dll = LoadLibraryW(L"ctr2shim.dll");
+    auto* dll = LoadLibraryW(L"ctr2shim.dll");
     CHECK(dll);
     if (!dll) return 1;
     auto get = reinterpret_cast<HRESULT(WINAPI*)(HSTRING, IActivationFactory**)>(GetProcAddress(dll, "ShimGetFactory"));
@@ -71,7 +71,7 @@ int main() {
     ComPtr<IApplicationFactory> compose;
     CHECK(SUCCEEDED(factory.As(&compose)));
     if (!compose) return 1;
-    auto outer = new Outer;
+    auto* outer = new Outer;
     ComPtr<IApplication> app;
     CHECK(SUCCEEDED(compose->CreateInstance(outer, &outer->inner, &app)));
     if (!app) return 1;
@@ -303,8 +303,9 @@ int main() {
                                                             : ABI::Windows::UI::Core::CoreDispatcherPriority_Normal,
                                                      work.Get(), &action)));
                         }
-                    } else
+                    } else {
                         PostQuitMessage(0);
+                    }
                 }
             }
         }

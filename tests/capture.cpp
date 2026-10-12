@@ -13,7 +13,7 @@ int main(int argc, char**) {
     int w = rect.right, h = rect.bottom;
     HDC screen = GetDC(hwnd), memory = CreateCompatibleDC(screen);
     HBITMAP bitmap = CreateCompatibleBitmap(screen, w, h);
-    auto old = SelectObject(memory, bitmap);
+    auto* old = SelectObject(memory, bitmap);
     if (!BitBlt(memory, 0, 0, w, h, screen, 0, 0, SRCCOPY)) {
         printf("BitBlt error=%lu size=%dx%d screen=%p memory=%p bitmap=%p\n", GetLastError(), w, h, screen, memory,
                bitmap);

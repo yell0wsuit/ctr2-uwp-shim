@@ -31,7 +31,7 @@ struct TimerState {
     ComPtr<ITimerElapsedHandler> callback;
     ComPtr<ITimerDestroyedHandler> destroyed;
     std::int64_t intervalTicks = 0;
-    TimerKey key{};
+    TimerKey key;
     bool periodic = false, queued = false, canceled = false, finished = false;
 };
 class TimerScheduler {
@@ -136,7 +136,9 @@ void TimerScheduler::Run() {
             if (count <= 5 || count % 500 == 0) Log("TRACE", "ThreadPoolTimer fire %u", count);
             try {
                 hr = state->callback->Invoke(state->timer.Get());
-            } catch (...) {}
+            } catch (...) {
+                hr = E_UNEXPECTED;
+            }
             if (FAILED(hr)) Log("FAIL", "TimerElapsedHandler hr=%08lx", hr);
         }
         lock.lock();
@@ -152,7 +154,9 @@ void TimerScheduler::Run() {
                 HRESULT hr = E_FAIL;
                 try {
                     hr = state->destroyed->Invoke(state->timer.Get());
-                } catch (...) {}
+                } catch (...) {
+                    hr = E_UNEXPECTED;
+                }
                 if (FAILED(hr)) Log("FAIL", "TimerDestroyedHandler hr=%08lx", hr);
             }
             // Release handler and timer references outside the scheduler lock;
@@ -262,7 +266,9 @@ public:
                 HRESULT hr = E_FAIL;
                 try {
                     hr = callback->Invoke(action.Get());
-                } catch (...) {}
+                } catch (...) {
+                    hr = E_UNEXPECTED;
+                }
                 Log(FAILED(hr) ? "FAIL" : "TRACE", "WorkItemHandler hr=%08lx", hr);
                 action->Finish(hr);
                 if (SUCCEEDED(initialized)) RoUninitialize();

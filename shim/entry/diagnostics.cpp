@@ -13,19 +13,19 @@ static void LogAngleError(EXCEPTION_POINTERS* fault) noexcept {
                       message, sizeof(message) - sizeof(wchar_t), &read);
     if (wcsncmp(message, L"eglMakeCurrent failed", 21) != 0 && wcsncmp(message, L"eglSwapBuffers failed", 21) != 0)
         return;
-    auto image = reinterpret_cast<BYTE*>(GetModuleHandleW(nullptr));
+    auto* image = reinterpret_cast<BYTE*>(GetModuleHandleW(nullptr));
     wchar_t path[MAX_PATH]{};
     GetModuleFileNameW(nullptr, path, MAX_PATH);
-    auto name = wcsrchr(path, L'\\');
+    auto* name = wcsrchr(path, L'\\');
     if (!name || _wcsicmp(name + 1, L"Game.exe") != 0) return;
-    auto dos = reinterpret_cast<IMAGE_DOS_HEADER*>(image);
-    auto nt = reinterpret_cast<IMAGE_NT_HEADERS32*>(image + dos->e_lfanew);
+    auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(image);
+    auto* nt = reinterpret_cast<IMAGE_NT_HEADERS32*>(image + dos->e_lfanew);
     // Diagnostic only, for the supported 1.0.0.46 executable's ANGLE TLS key.
     if (nt->OptionalHeader.SizeOfImage <= 0x5adde4) return;
     DWORD index = TLS_OUT_OF_INDEXES;
     if (!ReadProcessMemory(GetCurrentProcess(), image + 0x5adde0, &index, sizeof(index), &read)) return;
     DWORD previous = GetLastError();
-    auto storage = TlsGetValue(index);
+    auto* storage = TlsGetValue(index);
     SetLastError(previous);
     DWORD state[6]{};
     if (ReadProcessMemory(GetCurrentProcess(), storage, state, sizeof(state), &read))
@@ -36,12 +36,12 @@ void LogThreadStorage() noexcept {
     wchar_t enabled[4]{};
     GetEnvironmentVariableW(L"CTR2SHIM_DIAGNOSTICS", enabled, 4);
     if (enabled[0] != L'1') return;
-    auto image = reinterpret_cast<BYTE*>(GetModuleHandleW(nullptr));
-    auto dos = reinterpret_cast<IMAGE_DOS_HEADER*>(image);
-    auto nt = reinterpret_cast<IMAGE_NT_HEADERS32*>(image + dos->e_lfanew);
+    auto* image = reinterpret_cast<BYTE*>(GetModuleHandleW(nullptr));
+    auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(image);
+    auto* nt = reinterpret_cast<IMAGE_NT_HEADERS32*>(image + dos->e_lfanew);
     auto directory = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS];
     if (!directory.VirtualAddress) return;
-    auto tls = reinterpret_cast<IMAGE_TLS_DIRECTORY32*>(image + directory.VirtualAddress);
+    auto* tls = reinterpret_cast<IMAGE_TLS_DIRECTORY32*>(image + directory.VirtualAddress);
     DWORD index = 0, blocks[8]{};
     SIZE_T read{};
     if (!ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(tls->AddressOfIndex), &index, sizeof(index),
@@ -63,7 +63,7 @@ static LONG CALLBACK LogFault(EXCEPTION_POINTERS* fault) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
     if (fault->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION) return EXCEPTION_CONTINUE_SEARCH;
-    auto context = fault->ContextRecord;
+    auto* context = fault->ContextRecord;
     LogThreadStorage();
     HMODULE module{};
     wchar_t path[MAX_PATH]{};

@@ -30,7 +30,7 @@ void Log(const char* level, const char* format, ...) noexcept {
     wchar_t path[32768]{};
     auto size = GetModuleFileNameW(nullptr, path, 32768);
     if (!size || size >= 32768) return;
-    auto slash = wcsrchr(path, L'\\');
+    auto* slash = wcsrchr(path, L'\\');
     if (!slash) return;
     wcscpy_s(slash + 1, 32768 - (slash + 1 - path), L"ctr2shim.log");
     HANDLE file = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,

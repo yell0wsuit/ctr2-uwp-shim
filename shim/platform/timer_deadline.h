@@ -13,7 +13,7 @@ inline TimerClock::time_point TimerDeadline(TimerClock::time_point now, std::int
     static_assert(std::numeric_limits<TimerClock::rep>::is_signed && sizeof(TimerClock::rep) == 8,
                   "Timer deadline conversion requires signed 64-bit clock ticks");
     if (ticks <= 0) return now;
-    constexpr auto maximum = (std::numeric_limits<std::int64_t>::max)();
+    constexpr auto maximum = std::numeric_limits<std::int64_t>::max();
     if (ticks > maximum / 100) return TimerClock::time_point::max();
     auto nanoseconds = ticks * 100;
     if (now.time_since_epoch().count() > maximum - nanoseconds) return TimerClock::time_point::max();

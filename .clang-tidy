@@ -2,17 +2,30 @@
 # Bug-finding checks plus a readability subset. Disabled checks conflict with
 # COM/WinRT conventions used throughout (fixed ABI signatures with unnamed or
 # unused parameters, `boolean` out-params, guard clauses without braces, WRL
-# macros emitting access specifiers, intentional reinterpret_casts in hooks).
+# macros emitting access specifiers, intentional reinterpret_casts in hooks),
+# or misfire here:
+#   derived-method-shadowing-base-method: WRL's CustomQueryInterface hook.
+#   macro-parentheses: macro arguments are member names and types.
+#   signed-bitwise: WinRT flag enums are signed; FILETIME/INT64 shifts.
+#   no-int-to-ptr: hook and diagnostics address arithmetic.
+#   duplicate-include: reports headers included once (clang-cl + /imsvc).
+#   avoid-nested-conditional-operator: short three-way mappings.
 Checks: >
   -*,
   bugprone-*,
+  -bugprone-derived-method-shadowing-base-method,
   -bugprone-easily-swappable-parameters,
+  -bugprone-macro-parentheses,
   -bugprone-reserved-identifier,
+  -bugprone-signed-bitwise,
   performance-*,
+  -performance-no-int-to-ptr,
   readability-*,
+  -readability-avoid-nested-conditional-operator,
   -readability-avoid-unconditional-preprocessor-if,
   -readability-braces-around-statements,
   -readability-convert-member-functions-to-static,
+  -readability-duplicate-include,
   -readability-function-cognitive-complexity,
   -readability-identifier-length,
   -readability-identifier-naming,
@@ -32,3 +45,6 @@ Checks: >
 HeaderFilterRegex: '.*/(shim|tests|proxy)/.*'
 ExcludeHeaderFilterRegex: '.*/shim/generated/.*'
 WarningsAsErrors: ''
+CheckOptions:
+  # DeMorgan rewrites fire inside test CHECK(...) macro expansions.
+  readability-simplify-boolean-expr.SimplifyDeMorgan: false

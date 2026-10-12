@@ -40,8 +40,12 @@ template <class Derived, class Primary, class... Interfaces> class Composable : 
     } inner_{this};
     IInspectable* outer_;
 
-public:
+protected:
+    // Element<Derived> sits between this and Derived, so friend Derived would not suffice.
+    // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility)
     explicit Composable(IInspectable* outer) : outer_(outer) {}
+
+public:
     IInspectable* InnerUnknown() { return &inner_; }
     HRESULT InnerQuery(REFIID iid, void** value) {
         if (!value) return E_POINTER;
@@ -71,7 +75,7 @@ public:
         *count = 0;
         *ids = nullptr;
         const IID list[] = {__uuidof(Primary), __uuidof(Interfaces)...};
-        auto memory = static_cast<IID*>(CoTaskMemAlloc(sizeof(list)));
+        auto* memory = static_cast<IID*>(CoTaskMemAlloc(sizeof(list)));
         if (!memory) return E_OUTOFMEMORY;
         memcpy(memory, list, sizeof(list));
         *ids = memory;

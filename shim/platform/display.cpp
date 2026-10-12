@@ -1,5 +1,5 @@
 // These legacy contracts are required by the Windows 8.1 executable.
-#if defined(__clang__)
+#ifdef __clang__
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 #else
 #pragma warning(disable : 4996)

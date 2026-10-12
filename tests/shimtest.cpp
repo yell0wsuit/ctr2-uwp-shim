@@ -34,7 +34,7 @@ int main() {
     auto nearMax = ctr2::TimerClock::time_point::max() - std::chrono::nanoseconds(50);
     CHECK(ctr2::TimerDeadline(nearMax, 1) == ctr2::TimerClock::time_point::max());
     RoInitialize(RO_INIT_MULTITHREADED);
-    auto dll = LoadLibraryW(L"ctr2shim.dll");
+    auto* dll = LoadLibraryW(L"ctr2shim.dll");
     CHECK(dll != nullptr);
     if (!dll) return 1;
     auto get = reinterpret_cast<GetFactory>(GetProcAddress(dll, "ShimGetFactory"));

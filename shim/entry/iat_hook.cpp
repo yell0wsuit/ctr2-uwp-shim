@@ -13,9 +13,9 @@ static HRESULT WINAPI GetFactory(HSTRING name, REFIID iid, void** out) noexcept 
     if (!out) return E_POINTER;
     *out = nullptr;
     HRESULT hr;
-    if (TraceMode())
+    if (TraceMode()) {
         hr = originalFactory(name, iid, out);
-    else {
+    } else {
         // Prefer the OS Streams implementation when available. The partial
         // buffer reader fills the missing Wine class, without replacing the
         // complete Windows DataReader implementation.
@@ -41,9 +41,9 @@ static HRESULT WINAPI Activate(HSTRING name, IInspectable** out) noexcept {
     if (!out) return E_POINTER;
     *out = nullptr;
     HRESULT hr;
-    if (TraceMode())
+    if (TraceMode()) {
         hr = originalActivate(name, out);
-    else {
+    } else {
         Microsoft::WRL::ComPtr<IActivationFactory> factory;
         hr = ShimGetFactory(name, &factory);
         if (hr == CLASS_E_CLASSNOTAVAILABLE)
@@ -56,21 +56,21 @@ static HRESULT WINAPI Activate(HSTRING name, IInspectable** out) noexcept {
 }
 static void PatchModule(HMODULE module) noexcept {
     if (!module) return;
-    auto base = reinterpret_cast<BYTE*>(module);
-    auto dos = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
+    auto* base = reinterpret_cast<BYTE*>(module);
+    auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
     if (dos->e_magic != IMAGE_DOS_SIGNATURE) return;
-    auto nt = reinterpret_cast<IMAGE_NT_HEADERS32*>(base + dos->e_lfanew);
+    auto* nt = reinterpret_cast<IMAGE_NT_HEADERS32*>(base + dos->e_lfanew);
     if (nt->Signature != IMAGE_NT_SIGNATURE || nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC) return;
     auto dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
     if (!dir.VirtualAddress) return;
-    auto imports = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(base + dir.VirtualAddress);
+    auto* imports = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(base + dir.VirtualAddress);
     for (; imports->Name; ++imports) {
         if (!imports->OriginalFirstThunk) continue;
-        auto names = reinterpret_cast<IMAGE_THUNK_DATA32*>(base + imports->OriginalFirstThunk);
-        auto slots = reinterpret_cast<IMAGE_THUNK_DATA32*>(base + imports->FirstThunk);
+        auto* names = reinterpret_cast<IMAGE_THUNK_DATA32*>(base + imports->OriginalFirstThunk);
+        auto* slots = reinterpret_cast<IMAGE_THUNK_DATA32*>(base + imports->FirstThunk);
         for (; names->u1.AddressOfData; ++names, ++slots) {
             if (IMAGE_SNAP_BY_ORDINAL32(names->u1.Ordinal)) continue;
-            auto symbol = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData);
+            auto* symbol = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData);
             void* hook = nullptr;
             if (strcmp(reinterpret_cast<char*>(symbol->Name), "RoGetActivationFactory") == 0)
                 hook = reinterpret_cast<void*>(&GetFactory);

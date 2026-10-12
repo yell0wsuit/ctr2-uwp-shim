@@ -28,6 +28,7 @@ struct PresentHooks {
 static const GUID redirectedTag = {0xa891e43b, 0x7e18, 0x4e38, {0xaa, 0xaa, 0xd7, 0x1b, 0x50, 0x0c, 0x67, 0x5f}};
 static const GUID matrixTag = {0xff0dfd5b, 0x2cb8, 0x420c, {0xb1, 0xa0, 0xa4, 0x67, 0x28, 0x6b, 0x3f, 0x86}};
 static std::mutex presentMutex;
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): allocation failure at DLL load is fatal anyway.
 static std::map<void**, PresentHooks> presentHooks;
 static std::atomic<unsigned> frameCount{0};
 static void CaptureFrame(IDXGISwapChain* swap) {
@@ -63,7 +64,7 @@ static void CaptureFrame(IDXGISwapChain* swap) {
     if (FAILED(hr)) return;
     std::vector<BYTE> pixels(static_cast<size_t>(desc.Width) * desc.Height * 4);
     for (UINT y = 0; y < desc.Height; ++y) {
-        auto row = pixels.data() + static_cast<size_t>(y) * desc.Width * 4;
+        auto* row = pixels.data() + static_cast<size_t>(y) * desc.Width * 4;
         memcpy(row, static_cast<const BYTE*>(mapped.pData) + static_cast<size_t>(y) * mapped.RowPitch,
                static_cast<size_t>(desc.Width) * 4);
         if (desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM)
@@ -72,7 +73,7 @@ static void CaptureFrame(IDXGISwapChain* swap) {
     context->Unmap(staging.Get(), 0);
     BITMAPINFOHEADER info{};
     info.biSize = sizeof(info);
-    info.biWidth = desc.Width;
+    info.biWidth = static_cast<LONG>(desc.Width);
     info.biHeight = -static_cast<LONG>(desc.Height);
     info.biPlanes = 1;
     info.biBitCount = 32;
@@ -146,7 +147,7 @@ static HRESULT STDMETHODCALLTYPE GetMatrix(IDXGISwapChain2* swap, DXGI_MATRIX_3X
     return S_OK;
 }
 static void ObserveSwapChain(IDXGISwapChain1* swap) {
-    auto table = *reinterpret_cast<void***>(swap);
+    auto* table = *reinterpret_cast<void***>(swap);
     std::lock_guard<std::mutex> lock(presentMutex);
     if (presentHooks.count(table)) return;
     // Matrix slots exist only in IDXGISwapChain2 and later vtables.
@@ -154,11 +155,13 @@ static void ObserveSwapChain(IDXGISwapChain1* swap) {
     const bool matrix = SUCCEEDED(swap->QueryInterface(IID_PPV_ARGS(&swap2)));
     const SIZE_T slots = matrix ? 28 : 15;
     DWORD protection;
-    if (!VirtualProtect(table + 8, slots * sizeof(void*), PAGE_READWRITE, &protection)) return;
-    presentHooks.emplace(table, PresentHooks{reinterpret_cast<PresentCall>(table[8]),
-                                             reinterpret_cast<Present1Call>(table[22]),
-                                             matrix ? reinterpret_cast<SetMatrixCall>(table[34]) : nullptr,
-                                             matrix ? reinterpret_cast<GetMatrixCall>(table[35]) : nullptr});
+    if (!VirtualProtect(static_cast<void*>(table + 8), slots * sizeof(void*), PAGE_READWRITE, &protection)) return;
+    presentHooks.emplace(table, PresentHooks{
+                                    reinterpret_cast<PresentCall>(table[8]),
+                                    reinterpret_cast<Present1Call>(table[22]),
+                                    matrix ? reinterpret_cast<SetMatrixCall>(table[34]) : nullptr,
+                                    matrix ? reinterpret_cast<GetMatrixCall>(table[35]) : nullptr,
+                                });
     InterlockedExchangePointer(&table[8], reinterpret_cast<void*>(&Present));
     InterlockedExchangePointer(&table[22], reinterpret_cast<void*>(&Present1));
     if (matrix) {
@@ -166,7 +169,7 @@ static void ObserveSwapChain(IDXGISwapChain1* swap) {
         InterlockedExchangePointer(&table[35], reinterpret_cast<void*>(&GetMatrix));
     }
     DWORD ignored;
-    VirtualProtect(table + 8, slots * sizeof(void*), protection, &ignored);
+    VirtualProtect(static_cast<void*>(table + 8), slots * sizeof(void*), protection, &ignored);
 }
 
 static HRESULT STDMETHODCALLTYPE CreateForHost(IDXGIFactory2* factory, IUnknown* device,
@@ -188,9 +191,9 @@ static HRESULT STDMETHODCALLTYPE CreateForHost(IDXGIFactory2* factory, IUnknown*
     if (SUCCEEDED(hr) && value && *value) {
         const BOOL tag = TRUE;
         hr = (*value)->SetPrivateData(redirectedTag, sizeof(tag), &tag);
-        if (SUCCEEDED(hr))
+        if (SUCCEEDED(hr)) {
             ObserveSwapChain(*value);
-        else {
+        } else {
             (*value)->Release();
             *value = nullptr;
         }
@@ -208,17 +211,17 @@ HRESULT InitializeGraphicsRedirect() {
         result = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
         Log(FAILED(result) ? "FAIL" : "TRACE", "CreateDXGIFactory1 hr=%08lx", result);
         if (FAILED(result)) return;
-        auto table = *reinterpret_cast<void***>(factory.Get());
+        auto* table = *reinterpret_cast<void***>(factory.Get());
         // IDXGIFactory2 slot 24, copied from dxgi1_2.h's SDK ABI layout.
         DWORD protection;
-        if (!VirtualProtect(&table[24], sizeof(void*), PAGE_READWRITE, &protection)) {
+        if (!VirtualProtect(static_cast<void*>(&table[24]), sizeof(void*), PAGE_READWRITE, &protection)) {
             result = HRESULT_FROM_WIN32(GetLastError());
             return;
         }
         original = reinterpret_cast<CompositionCall>(table[24]);
         InterlockedExchangePointer(&table[24], reinterpret_cast<void*>(&CreateForHost));
         DWORD ignored;
-        VirtualProtect(&table[24], sizeof(void*), protection, &ignored);
+        VirtualProtect(static_cast<void*>(&table[24]), sizeof(void*), protection, &ignored);
         result = S_OK;
     });
     return result;

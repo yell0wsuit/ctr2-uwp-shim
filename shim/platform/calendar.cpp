@@ -54,7 +54,7 @@ class Calendar final : public RuntimeClass<RuntimeClassFlags<WinRt>, DefaultICal
     HRESULT AddMonthsLocal(INT64 months) {
         return Edit([months](SYSTEMTIME& local) {
             auto total = static_cast<INT64>(local.wYear) * 12 + (local.wMonth - 1) + months;
-            if (total < 1601 * 12 || total > 30827 * 12 + 11) return false;
+            if (total < INT64{1601} * 12 || total > INT64{30827} * 12 + 11) return false;
             local.wYear = static_cast<WORD>(total / 12);
             local.wMonth = static_cast<WORD>(total % 12 + 1);
             local.wDay = static_cast<WORD>(std::min(static_cast<int>(local.wDay), DaysIn(local.wYear, local.wMonth)));
@@ -114,7 +114,7 @@ public:
         });
     }
     HRESULT STDMETHODCALLTYPE AddMonths(INT32 months) override { return AddMonthsLocal(months); }
-    HRESULT STDMETHODCALLTYPE AddWeeks(INT32 weeks) override { return AddTicks(weeks * 7 * Day); }
+    HRESULT STDMETHODCALLTYPE AddWeeks(INT32 weeks) override { return AddTicks(static_cast<INT64>(weeks) * 7 * Day); }
     HRESULT STDMETHODCALLTYPE get_FirstDayInThisMonth(INT32* value) override {
         if (!value) return E_POINTER;
         *value = 1;

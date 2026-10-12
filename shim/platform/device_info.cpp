@@ -19,7 +19,7 @@ class DisplayRequest final : public RuntimeClass<RuntimeClassFlags<WinRt>, Defau
 public:
     HRESULT STDMETHODCALLTYPE RequestActive() override {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (requests_ == (std::numeric_limits<UINT32>::max)()) return E_ILLEGAL_METHOD_CALL;
+        if (requests_ == std::numeric_limits<UINT32>::max()) return E_ILLEGAL_METHOD_CALL;
         ++requests_;
         return S_OK;
     }

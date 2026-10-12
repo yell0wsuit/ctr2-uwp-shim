@@ -6,7 +6,7 @@
 namespace ctr2 {
 using PointerCallback = std::function<void(UINT, ABI::Windows::UI::Xaml::Input::IPointerRoutedEventArgs*)>;
 void RegisterPointerTarget(IInspectable* target, PointerCallback callback);
-void UnregisterPointerTarget(IInspectable* target);
+void UnregisterPointerTarget(IInspectable* target) noexcept;
 void SetPointerTarget(IInspectable* target);
 void ClearPointerTarget(IInspectable* target);
 HRESULT CaptureElementPointer(IInspectable* target, ABI::Windows::UI::Xaml::Input::IPointer* pointer, boolean* result);

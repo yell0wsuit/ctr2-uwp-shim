@@ -14,7 +14,7 @@ int main() {
     DeleteFileW(L"ctr2-frame.bmp");
     SetEnvironmentVariableW(L"CTR2SHIM_CAPTURE", L"1");
     RoInitialize(RO_INIT_SINGLETHREADED);
-    auto dll = LoadLibraryW(L"ctr2shim.dll");
+    auto* dll = LoadLibraryW(L"ctr2shim.dll");
     if (!dll) return 1;
     auto get = reinterpret_cast<HRESULT(WINAPI*)(HSTRING, IActivationFactory**)>(GetProcAddress(dll, "ShimGetFactory"));
     ComPtr<IActivationFactory> factory;
@@ -86,7 +86,7 @@ int main() {
                         D3D11_MAPPED_SUBRESOURCE mapped{};
                         gpu = context->Map(readback.Get(), 0, D3D11_MAP_READ, 0, &mapped);
                         if (SUCCEEDED(gpu)) {
-                            auto px = static_cast<const BYTE*>(mapped.pData);
+                            const auto* px = static_cast<const BYTE*>(mapped.pData);
                             if (px[0] != 255 || px[1] != 0 || px[2] != 0 || px[3] != 255) gpu = E_FAIL;
                             context->Unmap(readback.Get(), 0);
                         }
@@ -95,9 +95,9 @@ int main() {
                     if (SUCCEEDED(gpu)) {
                         FILE* frame{};
                         fopen_s(&frame, "ctr2-frame.bmp", "rb");
-                        if (!frame)
+                        if (!frame) {
                             gpu = E_FAIL;
-                        else {
+                        } else {
                             BYTE pixel[4]{};
                             fseek(frame, 54, SEEK_SET);
                             fread(pixel, 1, 4, frame);

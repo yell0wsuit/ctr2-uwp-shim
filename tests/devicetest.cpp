@@ -11,7 +11,7 @@ using namespace ABI::Windows::System::Display;
 using namespace ABI::Windows::Security::ExchangeActiveSyncProvisioning;
 int main() {
     RoInitialize(RO_INIT_MULTITHREADED);
-    auto dll = LoadLibraryW(L"ctr2shim.dll");
+    auto* dll = LoadLibraryW(L"ctr2shim.dll");
     if (!dll) return 1;
     auto get = reinterpret_cast<HRESULT(WINAPI*)(HSTRING, IActivationFactory**)>(GetProcAddress(dll, "ShimGetFactory"));
     ComPtr<IActivationFactory> factory;
@@ -50,21 +50,22 @@ int main() {
         original = id;
         HString value;
         if (info->get_OperatingSystem(nullptr) != E_POINTER ||
-            FAILED(info->get_OperatingSystem(value.GetAddressOf())) || wcscmp(value.GetRawBuffer(nullptr), L"Windows"))
+            FAILED(info->get_OperatingSystem(value.GetAddressOf())) ||
+            wcscmp(value.GetRawBuffer(nullptr), L"Windows") != 0)
             return 15;
         if (info->get_FriendlyName(nullptr) != E_POINTER || FAILED(info->get_FriendlyName(value.GetAddressOf())) ||
-            wcscmp(value.GetRawBuffer(nullptr), L"ctr2-wine"))
+            wcscmp(value.GetRawBuffer(nullptr), L"ctr2-wine") != 0)
             return 16;
         if (info->get_SystemManufacturer(nullptr) != E_POINTER ||
             FAILED(info->get_SystemManufacturer(value.GetAddressOf())) ||
-            wcscmp(value.GetRawBuffer(nullptr), L"ctr2-wine"))
+            wcscmp(value.GetRawBuffer(nullptr), L"ctr2-wine") != 0)
             return 17;
         if (info->get_SystemProductName(nullptr) != E_POINTER ||
             FAILED(info->get_SystemProductName(value.GetAddressOf())) ||
-            wcscmp(value.GetRawBuffer(nullptr), L"Compatibility Device"))
+            wcscmp(value.GetRawBuffer(nullptr), L"Compatibility Device") != 0)
             return 18;
         if (info->get_SystemSku(nullptr) != E_POINTER || FAILED(info->get_SystemSku(value.GetAddressOf())) ||
-            wcscmp(value.GetRawBuffer(nullptr), L"offline"))
+            wcscmp(value.GetRawBuffer(nullptr), L"offline") != 0)
             return 19;
     }
     puts("devicetest: 0 failure(s)");

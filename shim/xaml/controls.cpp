@@ -221,7 +221,7 @@ HRESULT RaiseElementSizeChanged() {
     // Handlers may create or destroy elements; re-find each key before calling.
     std::vector<IFrameworkElement*> keys;
     for (auto& item : SizeCallbacks()) keys.push_back(item.first);
-    for (auto key : keys) {
+    for (auto* key : keys) {
         auto found = SizeCallbacks().find(key);
         if (found == SizeCallbacks().end()) continue;
         auto callback = found->second;

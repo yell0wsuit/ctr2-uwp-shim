@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <cstring>
 int main() {
-    auto module = LoadLibraryW(L"d3dcompiler_47.dll");
+    auto* module = LoadLibraryW(L"d3dcompiler_47.dll");
     if (!module) {
         printf("FAIL load %lu\n", GetLastError());
         return 1;

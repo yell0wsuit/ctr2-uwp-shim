@@ -14,16 +14,16 @@ class Node;
 struct __declspec(uuid("3c5e8f2a-9d41-4b7e-8f06-2a1d7c94e5b3")) INodeImpl : public IInspectable {
     virtual Node* STDMETHODCALLTYPE Impl() = 0;
 };
-static std::wstring Text(HSTRING value) {
+std::wstring Text(HSTRING value) {
     UINT32 length{};
-    auto raw = WindowsGetStringRawBuffer(value, &length);
+    const auto* raw = WindowsGetStringRawBuffer(value, &length);
     return std::wstring(raw, length);
 }
-static HRESULT Copy(const std::wstring& text, HSTRING* value) {
+HRESULT Copy(const std::wstring& text, HSTRING* value) {
     if (!value) return E_POINTER;
     return WindowsCreateString(text.data(), static_cast<UINT32>(text.size()), value);
 }
-static std::wstring Escape(const std::wstring& text, bool attribute) {
+std::wstring Escape(const std::wstring& text, bool attribute) {
     std::wstring out;
     for (auto c : text) {
         if (c == L'&')
@@ -137,7 +137,7 @@ public:
     Node(NodeType type, std::wstring name) : type_(type), name_(std::move(name)) {}
     virtual ~Node() {
         for (auto& child : children_)
-            if (auto node = From(child.Get())) node->parent_ = nullptr;
+            if (auto* node = From(child.Get())) node->parent_ = nullptr;
     }
     static Node* From(IUnknown* value) {
         ComPtr<INodeImpl> impl;
@@ -155,8 +155,8 @@ public:
         parent_ = nullptr;
     }
     void Collect(const std::wstring& tag, std::vector<ComPtr<IXmlNode>>& found) const {
-        for (auto& child : children_) {
-            auto node = From(child.Get());
+        for (const auto& child : children_) {
+            auto* node = From(child.Get());
             if (node && node->type_ == NodeType_ElementNode) {
                 if (tag == L"*" || node->name_ == tag) found.push_back(child);
                 node->Collect(tag, found);
@@ -166,18 +166,18 @@ public:
     std::wstring InnerText() const {
         if (type_ == NodeType_TextNode) return data_;
         std::wstring text;
-        for (auto& child : children_)
-            if (auto node = From(child.Get())) text += node->InnerText();
+        for (const auto& child : children_)
+            if (auto* node = From(child.Get())) text += node->InnerText();
         return text;
     }
     std::wstring Xml() const {
         if (type_ == NodeType_TextNode) return Escape(data_, false);
         std::wstring inner;
-        for (auto& child : children_)
-            if (auto node = From(child.Get())) inner += node->Xml();
+        for (const auto& child : children_)
+            if (auto* node = From(child.Get())) inner += node->Xml();
         if (type_ == NodeType_DocumentNode) return inner;
         std::wstring xml = L"<" + name_;
-        for (auto& attribute : attributes_)
+        for (const auto& attribute : attributes_)
             xml += L" " + attribute.first + L"=\"" + Escape(attribute.second, true) + L"\"";
         return inner.empty() ? xml + L"/>" : xml + L">" + inner + L"</" + name_ + L">";
     }
@@ -186,8 +186,10 @@ template <class Derived, class... Interfaces>
 class NodeBase : public RuntimeClass<RuntimeClassFlags<WinRt>, Interfaces..., DefaultIXmlNode, DefaultIXmlNodeSelector,
                                      DefaultIXmlNodeSerializer, INodeImpl, FtmBase>,
                  public Node {
-public:
+    friend Derived;
     NodeBase(NodeType type, std::wstring name) : Node(type, std::move(name)) { self_ = static_cast<IXmlNode*>(this); }
+
+public:
     Node* STDMETHODCALLTYPE Impl() override { return this; }
     HRESULT STDMETHODCALLTYPE get_NodeName(HSTRING* value) override {
         return Copy(type_ == NodeType_TextNode       ? L"#text"
@@ -230,9 +232,9 @@ public:
     HRESULT STDMETHODCALLTYPE AppendChild(IXmlNode* child, IXmlNode** appended) override {
         if (!appended) return E_POINTER;
         *appended = nullptr;
-        auto node = From(child);
+        auto* node = From(child);
         if (!node || node->type_ == NodeType_DocumentNode || type_ == NodeType_TextNode) return E_INVALIDARG;
-        for (auto ancestor = static_cast<Node*>(this); ancestor; ancestor = ancestor->parent_)
+        for (auto* ancestor = static_cast<Node*>(this); ancestor; ancestor = ancestor->parent_)
             if (ancestor == node) return E_INVALIDARG;
         ComPtr<IXmlNode> retained(child);
         node->Detach();
@@ -243,7 +245,7 @@ public:
     HRESULT STDMETHODCALLTYPE RemoveChild(IXmlNode* child, IXmlNode** removed) override {
         if (!removed) return E_POINTER;
         *removed = nullptr;
-        auto node = From(child);
+        auto* node = From(child);
         if (!node || node->parent_ != this) return E_INVALIDARG;
         ComPtr<IXmlNode> retained(child);
         node->Detach();
@@ -337,19 +339,18 @@ public:
         return list ? list.CopyTo(value) : E_OUTOFMEMORY;
     }
 };
-static HRESULT Append(IXmlNode* parent, const wchar_t* name,
-                      std::initializer_list<std::pair<const wchar_t*, const wchar_t*>> attributes,
-                      ComPtr<IXmlNode>& child) {
+HRESULT Append(IXmlNode* parent, const wchar_t* name,
+               std::initializer_list<std::pair<const wchar_t*, const wchar_t*>> attributes, ComPtr<IXmlNode>& child) {
     auto element = Make<Element>(name);
     if (!element) return E_OUTOFMEMORY;
-    for (auto& attribute : attributes) element->attributes_.emplace_back(attribute.first, attribute.second);
+    for (const auto& attribute : attributes) element->attributes_.emplace_back(attribute.first, attribute.second);
     ComPtr<IXmlNode> node;
     auto hr = element.As(&node);
     if (FAILED(hr)) return hr;
     ComPtr<IXmlNode> appended;
     hr = parent->AppendChild(node.Get(), &appended);
     if (FAILED(hr)) return hr;
-    child = node;
+    child = std::move(node);
     return S_OK;
 }
 }

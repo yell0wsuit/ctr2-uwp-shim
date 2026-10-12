@@ -12,6 +12,7 @@ void XamlHostMessage(UINT message, WPARAM wparam, LPARAM lparam);
 static HWND window;
 static DWORD thread;
 static std::mutex queueMutex;
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization): allocation failure at DLL load is fatal anyway.
 static std::map<int, std::deque<std::function<void()>>, std::greater<int>> queue;
 static constexpr UINT WorkMessage = WM_APP + 1;
 HRESULT PostHostWork(int priority, std::function<void()> work) {
@@ -30,7 +31,7 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARA
     PointerHostMessage(message, wparam, lparam);
     if (message == WM_ACTIVATE) {
         DWORD process = 0;
-        auto foreground = GetForegroundWindow();
+        auto* foreground = GetForegroundWindow();
         GetWindowThreadProcessId(foreground, &process);
         wchar_t name[80]{};
         GetClassNameW(reinterpret_cast<HWND>(lparam), name, 80);

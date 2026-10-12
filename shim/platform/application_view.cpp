@@ -1,5 +1,5 @@
 // The executable requests the Windows 8.1 ApplicationView ABI.
-#if defined(__clang__)
+#ifdef __clang__
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 #else
 #pragma warning(disable : 4996)
@@ -16,7 +16,7 @@ namespace ctr2 {
 namespace {
 ABI::Windows::Foundation::Rect VisibleBounds() {
     RECT r{0, 0, 1024, 768};
-    if (auto window = HostWindow()) GetClientRect(window, &r);
+    if (auto* window = HostWindow()) GetClientRect(window, &r);
     return {0, 0, static_cast<float>(r.right - r.left), static_cast<float>(r.bottom - r.top)};
 }
 class View final : public RuntimeClass<RuntimeClassFlags<WinRt>, DefaultIApplicationView, DefaultIApplicationView2,
@@ -48,7 +48,7 @@ public:
     HRESULT STDMETHODCALLTYPE get_IsFullScreen(boolean* v) override {
         if (!v) return E_POINTER;
         *v = false;
-        if (auto window = HostWindow()) {
+        if (auto* window = HostWindow()) {
             MONITORINFO monitor{};
             monitor.cbSize = sizeof(monitor);
             RECT r{};

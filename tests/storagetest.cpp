@@ -21,7 +21,7 @@ void FreeArrayResult(ABI::Windows::Foundation::IPropertyValue* value, void* byte
 }
 int main(int argc, char** argv) {
     RoInitialize(RO_INIT_MULTITHREADED);
-    auto dll = LoadLibraryW(L"ctr2shim.dll");
+    auto* dll = LoadLibraryW(L"ctr2shim.dll");
     if (!dll) return 1;
     auto get = reinterpret_cast<HRESULT(WINAPI*)(HSTRING, IActivationFactory**)>(GetProcAddress(dll, "ShimGetFactory"));
     ComPtr<IActivationFactory> factory;
@@ -53,7 +53,7 @@ int main(int argc, char** argv) {
     ReadFile(handle, restored, sizeof(restored), &read, nullptr);
     CloseHandle(handle);
     DeleteFileW(file.c_str());
-    if (read != sizeof(bytes) || memcmp(restored, bytes, sizeof(bytes))) return 13;
+    if (read != sizeof(bytes) || memcmp(restored, bytes, sizeof(bytes)) != 0) return 13;
     ComPtr<ABI::Windows::Foundation::IPropertyValueStatics> props;
     if (FAILED(
             RoGetActivationFactory(HStringReference(L"Windows.Foundation.PropertyValue").Get(), IID_PPV_ARGS(&props))))
@@ -68,8 +68,10 @@ int main(int argc, char** argv) {
         const wchar_t payload[] = {roaming ? L'R' : L'V', 0, L'ü', L'中', 0xd83d, 0xde00};
         HString expected;
         expected.Set(payload, 6);
-        const wchar_t* keys[] = {L"__ctr2shim_test_string", L"__ctr2shim_test_bool",   L"__ctr2shim_test_i32",
-                                 L"__ctr2shim_test_i64",    L"__ctr2shim_test_double", L"__ctr2shim_test_bytes"};
+        const wchar_t* keys[] = {
+            L"__ctr2shim_test_string", L"__ctr2shim_test_bool",   L"__ctr2shim_test_i32",
+            L"__ctr2shim_test_i64",    L"__ctr2shim_test_double", L"__ctr2shim_test_bytes",
+        };
         ComPtr<ABI::Windows::Foundation::Collections::IObservableMap<HSTRING, IInspectable*>> observable;
         if (FAILED(set.As(&observable))) return 29;
         ComPtr<IUnknown> setIdentity, mapIdentity, observableIdentity;
@@ -167,6 +169,8 @@ int main(int argc, char** argv) {
                 case 5:
                     hr = props->CreateUInt8Array(3, bytes, &value);
                     break;
+                default:
+                    break;
                 }
                 boolean replaced{};
                 if (FAILED(hr) || FAILED(map->Insert(key.Get(), value.Get(), &replaced))) return 17;
@@ -185,8 +189,8 @@ int main(int argc, char** argv) {
                     HString actual;
                     if (FAILED(prop->GetString(actual.GetAddressOf()))) return 20;
                     UINT32 n{};
-                    auto p = actual.GetRawBuffer(&n);
-                    if (n != 6 || memcmp(p, payload, sizeof(payload))) return 21;
+                    const auto* p = actual.GetRawBuffer(&n);
+                    if (n != 6 || memcmp(p, payload, sizeof(payload)) != 0) return 21;
                     break;
                 }
                 case 1: {
@@ -218,12 +222,18 @@ int main(int argc, char** argv) {
                     if (!okay) return 27;
                     break;
                 }
+                default:
+                    break;
                 }
                 if (FAILED(map->Remove(key.Get()))) return 28;
             }
         }
-        const UINT64 doubleBits[] = {0x7ff0000000000000ULL, 0xfff0000000000000ULL, 0x7ff8000000000042ULL,
-                                     0x8000000000000000ULL};
+        const UINT64 doubleBits[] = {
+            0x7ff0000000000000ULL,
+            0xfff0000000000000ULL,
+            0x7ff8000000000042ULL,
+            0x8000000000000000ULL,
+        };
         for (int i = 0; i < 4; ++i) {
             std::wstring keyText = L"__ctr2shim_test_doublebits" + std::to_wstring(i);
             HString key;

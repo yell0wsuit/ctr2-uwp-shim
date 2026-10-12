@@ -40,7 +40,7 @@ struct Handle {
 };
 std::wstring String(HSTRING value) {
     UINT32 n{};
-    auto p = WindowsGetStringRawBuffer(value, &n);
+    const auto* p = WindowsGetStringRawBuffer(value, &n);
     return {p, n};
 }
 // Escape individual UTF-16 code units. This preserves embedded nulls and surrogate pairs.
@@ -170,7 +170,7 @@ void FreeArrayResult(IPropertyValue* value, void* bytes) {
     // array getters. Restrict this workaround to that implementation; Windows
     // and third-party IPropertyValue objects follow the CoTaskMemFree contract.
     HMODULE module{};
-    auto vtable = *reinterpret_cast<void***>(value);
+    auto* vtable = *reinterpret_cast<void***>(value);
     if (GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version") &&
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                            reinterpret_cast<LPCWSTR>(vtable), &module) &&
@@ -319,7 +319,8 @@ HRESULT ReadFileText(const std::wstring& path, std::string& text) {
     }
     LARGE_INTEGER size{};
     if (!GetFileSizeEx(file.value, &size)) return HRESULT_FROM_WIN32(GetLastError());
-    if (size.QuadPart < 0 || size.QuadPart > 16 * 1024 * 1024) return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
+    if (size.QuadPart < 0 || size.QuadPart > LONGLONG{16} * 1024 * 1024)
+        return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE);
     text.resize(static_cast<size_t>(size.QuadPart));
     DWORD read{};
     if (!ReadFile(file.value, text.data(), static_cast<DWORD>(text.size()), &read, nullptr))

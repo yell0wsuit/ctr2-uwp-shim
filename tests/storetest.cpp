@@ -1,5 +1,5 @@
 // The game uses the Windows 8.1 Store purchase ABI.
-#if defined(__clang__)
+#ifdef __clang__
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 #else
 #pragma warning(disable : 4996)
@@ -29,13 +29,13 @@ class SelfClosingCompletion final
 public:
     SelfClosingCompletion(ComPtr<SelfClosingCompletion>* owner, std::atomic<int>* released, bool* during)
         : owner_(owner), released_(released), releasedDuringInvoke_(during) {}
-    ~SelfClosingCompletion() { ++*released_; }
+    ~SelfClosingCompletion() override { ++*released_; }
     HRESULT STDMETHODCALLTYPE Invoke(IAsyncOperation<HSTRING>* operation, AsyncStatus) override {
         // Keep observation pointers on the stack, so the failing baseline can
         // report early destruction without dereferencing this after Close.
-        auto owner = owner_;
-        auto released = released_;
-        auto during = releasedDuringInvoke_;
+        auto* owner = owner_;
+        auto* released = released_;
+        auto* during = releasedDuringInvoke_;
         ComPtr<IAsyncInfo> info;
         operation->QueryInterface(IID_PPV_ARGS(&info));
         owner->Reset();
@@ -52,7 +52,7 @@ class ReentrantCompletion final
 public:
     ReentrantCompletion(IAsyncInfo* operation, std::atomic<int>& released)
         : operation_(operation), released_(released) {}
-    ~ReentrantCompletion() {
+    ~ReentrantCompletion() override {
         AsyncStatus status{};
         if (operation_->get_Status(&status) == RO_E_CLOSED && SUCCEEDED(operation_->Close())) ++released_;
     }
@@ -60,7 +60,7 @@ public:
 };
 int main() {
     RoInitialize(RO_INIT_MULTITHREADED);
-    auto dll = LoadLibraryW(L"ctr2shim.dll");
+    auto* dll = LoadLibraryW(L"ctr2shim.dll");
     if (!dll) return 1;
     auto get = reinterpret_cast<HRESULT(WINAPI*)(HSTRING, IActivationFactory**)>(GetProcAddress(dll, "ShimGetFactory"));
     ComPtr<IActivationFactory> factory;
@@ -94,7 +94,7 @@ int main() {
     auto lookupHr = products->Lookup(HStringReference(L"anything").Get(), &product);
     if (FAILED(sizeHr) || size || FAILED(keyHr) || found || lookupHr != E_BOUNDS || product) {
         printf("FAIL empty map sizehr=%08lx size=%u keyhr=%08lx found=%u lookup=%08lx expected=%08lx product=%p\n",
-               sizeHr, size, keyHr, found, lookupHr, static_cast<HRESULT>(E_BOUNDS), product.Get());
+               sizeHr, size, keyHr, found, lookupHr, (E_BOUNDS), product.Get());
         return 9;
     }
     ComPtr<Map> left, right;

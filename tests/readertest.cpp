@@ -14,7 +14,7 @@ using namespace ABI::Windows::Storage::Streams;
 using namespace ABI::Windows::System::Profile;
 int main() {
     RoInitialize(RO_INIT_MULTITHREADED);
-    auto dll = LoadLibraryW(L"ctr2shim.dll");
+    auto* dll = LoadLibraryW(L"ctr2shim.dll");
     if (!dll) return 1;
     auto get = reinterpret_cast<HRESULT(WINAPI*)(HSTRING, IActivationFactory**)>(GetProcAddress(dll, "ShimGetFactory"));
     ComPtr<IActivationFactory> factory;
@@ -53,7 +53,8 @@ int main() {
     if (FAILED(reader->ReadByte(&first)) || first != 'c') return 13;
     if (FAILED(reader->ReadBytes(15, bytes.data()))) return 14;
     const byte expected[15] = {'t', 'r', '2', '-', 'w', 'i', 'n', 'e', '-', 's', 'h', 'i', 'm', 0, 1};
-    if (memcmp(bytes.data(), expected, 15) || FAILED(reader->get_UnconsumedBufferLength(&size)) || size != 0) return 15;
+    if (memcmp(bytes.data(), expected, 15) != 0 || FAILED(reader->get_UnconsumedBufferLength(&size)) || size != 0)
+        return 15;
     if (reader->ReadByte(&first) != E_BOUNDS || FAILED(reader->ReadBytes(0, nullptr))) return 16;
     ByteOrder order{};
     UnicodeEncoding encoding{};

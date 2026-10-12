@@ -90,7 +90,7 @@ class Element : public Composable<Derived, Primary, ABI::Windows::UI::Xaml::Defa
         auto hr = get_RenderSize(&size);
         if (FAILED(hr)) return hr;
         if (size.Width == laidOut_.Width && size.Height == laidOut_.Height) return S_OK;
-        auto source = static_cast<ABI::Windows::UI::Xaml::IFrameworkElement*>(this);
+        auto* source = static_cast<ABI::Windows::UI::Xaml::IFrameworkElement*>(this);
         auto args = Microsoft::WRL::Make<SizeArgs>(source, laidOut_, size);
         if (!args) return E_OUTOFMEMORY;
         laidOut_ = size;
@@ -98,11 +98,12 @@ class Element : public Composable<Derived, Primary, ABI::Windows::UI::Xaml::Defa
         return resized_.InvokeAll(source, args.Get());
     }
 
-public:
+private:
+    friend Derived;
     explicit Element(IInspectable* outer) : Base(outer) {
         RegisterPointerTarget(static_cast<ABI::Windows::UI::Xaml::IFrameworkElement*>(this),
                               [this](UINT message, ABI::Windows::UI::Xaml::Input::IPointerRoutedEventArgs* args) {
-                                  auto source = static_cast<ABI::Windows::UI::Xaml::IFrameworkElement*>(this);
+                                  auto* source = static_cast<ABI::Windows::UI::Xaml::IFrameworkElement*>(this);
                                   if (message == WM_LBUTTONDOWN) eventPointerPressed_.InvokeAll(source, args);
                                   if (message == WM_LBUTTONUP) eventPointerReleased_.InvokeAll(source, args);
                                   if (message == WM_MOUSEMOVE) eventPointerMoved_.InvokeAll(source, args);
@@ -127,6 +128,9 @@ public:
             return panel_ ? DeliverElementLoaded(panel_.Get()) : S_OK;
         };
     }
+
+public:
+    // NOLINTNEXTLINE(bugprone-exception-escape): the constructor built both maps; erase() does not throw.
     ~Element() {
         UnregisterPointerTarget(static_cast<ABI::Windows::UI::Xaml::IFrameworkElement*>(this));
         LoadedCallbacks().erase(this);

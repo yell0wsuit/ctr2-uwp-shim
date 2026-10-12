@@ -1,4 +1,4 @@
-#if defined(__clang__)
+#ifdef __clang__
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 #else
 #pragma warning(disable : 4996)
@@ -14,7 +14,7 @@ using namespace Microsoft::WRL::Wrappers;
 using namespace ABI::Windows::UI::ViewManagement;
 int main() {
     RoInitialize(RO_INIT_MULTITHREADED);
-    auto dll = LoadLibraryW(L"ctr2shim.dll");
+    auto* dll = LoadLibraryW(L"ctr2shim.dll");
     if (!dll) return 1;
     auto get = reinterpret_cast<HRESULT(WINAPI*)(HSTRING, IActivationFactory**)>(GetProcAddress(dll, "ShimGetFactory"));
     ComPtr<IActivationFactory> factory;

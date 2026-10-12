@@ -1,0 +1,4 @@
+---
+# Test mains may let exceptions escape; a crash is a test failure.
+InheritParentConfig: true
+Checks: -bugprone-exception-escape
