@@ -41,7 +41,9 @@ With Python 3 installed, you can also launch from the repository with `python sc
 
 ### macOS / Wine (experimental)
 
-Use the same extracted game and x86 runtime files. Wine's own `wined3d.dll` draws nothing for this game on macOS, so you also build a [patched one](wine/wined3d.patch) from Wine's source (see [Wine graphics](docs/building.md#wine-graphics-macos)). From the repository root, extract both shim DLLs from the release ZIP into `downloads`, then build `wined3d.dll` into the same folder, and prepare and launch the game with Python 3 and Wine installed:
+Use the same extracted game and x86 runtime files. Build the patched **D3D11/DXGI/WineD3D graphics stack** once (see [Wine graphics](docs/building.md#wine-graphics-macos)), then stage all its files with the shim. The graphics DLLs share their own private interfaces, so they no longer need to match your installed Wine release. The same stack was tested on Wine 11.17 and 11.18.
+
+From the repository root, extract both shim DLLs from the release ZIP into `downloads`, then run:
 
 ```sh
 brew install bison llvm lld
@@ -52,7 +54,18 @@ python3 scripts/play.py
 
 Alternatively, [cross-compile the shim](docs/building.md#macos-cross-compilation), run `scripts/build-wined3d.sh` without an argument, and omit the final `downloads` argument to use `build/macos-x86`.
 
-The launcher defaults to Wine Devel in `~/Applications` and stores its Wine prefix in `local/wine-test`. Set `WINE` to your Wine executable and `WINEPREFIX` to use another prefix. Wine launches always enable logging. The launcher loads the staged `wined3d.dll` in place of Wine's, and turns on Wine's Retina mode with 192 DPI in the prefix so the game renders at the display's full resolution; set `CTR2_RETINA=0` for a faster but softer picture. It relaunches automatically when Wine crashes during graphics startup, which happens in up to two launches in three.
+The launcher defaults to Wine Devel in `~/Applications` and stores its Wine prefix in `local/wine-test`. Set `WINE` to your Wine executable and `WINEPREFIX` to use another prefix. Wine launches always enable logging. OpenGL uses the staged `d3d11.dll`, `dxgi.dll`, and `wined3d.dll`; `wine-graphics.json` verifies that they belong together. Rebuild and rerun setup to upgrade an older installation containing only `wined3d.dll`. The stack's source is pinned to Wine 11.18, independently of the runtime version. Compatibility still depends on Wine's Windows API support; every historical or future release cannot be guaranteed.
+
+The launcher enables Wine's Retina mode with 192 DPI; set `CTR2_RETINA=0` for a faster but softer picture. It retries the known graphics startup crash up to three times.
+
+Select a renderer with `--renderer` or `CTR2_RENDERER`:
+
+| Renderer | Graphics path | Requirements / status |
+| --- | --- | --- |
+| `opengl` (default) | Bundled D3D11 → patched WineD3D → OpenGL | Matched stack built above; verified game frame capture |
+| `vulkan` | Stock WineD3D → Vulkan → MoltenVK/Metal on macOS | Experimental: Wine 11.18/MoltenVK 1.4.0 failed buffer creation in testing |
+
+For example, `python3 scripts/play.py --renderer vulkan` selects Vulkan. See [backend details and macOS 28](docs/building.md#alternative-renderers-and-macos-28) before selecting the experimental renderer.
 
 ## Saves and window settings
 

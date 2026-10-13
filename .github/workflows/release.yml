@@ -85,7 +85,7 @@ jobs:
 
             - name: Run native tests
               # GPU and media playback tests require desktop hardware unavailable on hosted runners.
-              run: ctest --test-dir build/release -C RelWithDebInfo --output-on-failure --timeout 60 -E '^(gputest|mediatest)$'
+              run: ctest --test-dir build/release -C RelWithDebInfo --output-on-failure --timeout 60 -E '^(gputest|shadertest|mediatest)$'
 
             - name: Run script tests
               run: python -m unittest discover -s tests/python

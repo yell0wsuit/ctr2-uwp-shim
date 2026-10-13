@@ -1,23 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Usage: build-wined3d.sh [BUILD_DIRECTORY]
-# Builds Wine's 32-bit wined3d.dll with wine/wined3d.patch, for the Wine
-# version WINE runs, and writes it to BUILD_DIRECTORY (build/macos-x86).
+# Builds a matched 32-bit D3D11/DXGI/WineD3D stack with wine/wined3d.patch.
+# The stack exposes public Windows APIs to the installed Wine, rather than
+# mixing its private wined3d exports with another release's d3d11/dxgi.
 # setup.sh stages it beside Game.exe and run.sh loads it.
 root=$(cd "$(dirname "$0")/.." && pwd)
 build=${1:-"$root/build/macos-x86"}
-wine=${WINE:-"$HOME/Applications/Wine Devel.app/Contents/Resources/wine/bin/wine"}
-[[ -x "$wine" ]] || { echo 'Set WINE to your Wine executable.' >&2; exit 1; }
-# d3d11.dll and dxgi.dll call wined3d's internal exports, which change between
-# Wine releases: build from exactly the installed version.
-version=$("$wine" --version)
-version=${version#wine-}
-version=${version%% *}
-case "$version" in
-  11.18) sha256=c6282f6d4daecf11f3ab9f9a2b6c598f67be7e28c363ba2cae8a3c44b611e7a4 ;;
-  *) sha256=${WINE_SOURCE_SHA256:-}
-     [[ -n "$sha256" ]] || { echo "No checksum for Wine $version; set WINE_SOURCE_SHA256 to the source tarball's SHA-256." >&2; exit 1; } ;;
-esac
+# Pin the source this patch is maintained against. Runtime Wine version is
+# deliberately irrelevant: all three consumers of the private ABI ship together.
+version=11.18
+sha256=c6282f6d4daecf11f3ab9f9a2b6c598f67be7e28c363ba2cae8a3c44b611e7a4
+mkdir -p "$build"
+build=$(cd "$build" && pwd)
 for tool in /opt/homebrew/opt/bison/bin/bison /opt/homebrew/opt/llvm/bin/clang /opt/homebrew/opt/lld/bin/lld-link; do
   [[ -x "$tool" ]] || { echo "Missing $tool: brew install bison llvm lld" >&2; exit 1; }
 done
@@ -54,22 +49,34 @@ if [[ ! -f Makefile ]]; then
     CC='clang -arch x86_64' i386_CC=clang x86_64_CC=clang > configure.log 2>&1 \
     || { tail -20 configure.log >&2; exit 1; }
 fi
-arch -x86_64 make -j"$(sysctl -n hw.ncpu)" dlls/wined3d/i386-windows/wined3d.dll > make.log 2>&1 \
+arch -x86_64 make -j"$(sysctl -n hw.ncpu)" dlls/wined3d/i386-windows/wined3d.dll \
+  dlls/d3d11/i386-windows/d3d11.dll dlls/dxgi/i386-windows/dxgi.dll > make.log 2>&1 \
   || { tail -20 make.log >&2; exit 1; }
 
-mkdir -p "$build"
-llvm-strip -o "$build/wined3d.dll.part" dlls/wined3d/i386-windows/wined3d.dll
+for dll in wined3d d3d11 dxgi; do
+llvm-strip -o "$build/$dll.dll.part" "dlls/$dll/i386-windows/$dll.dll"
 # Wine treats a DLL carrying its "Wine builtin DLL" marker as builtin and won't
 # load it as a native override from the game folder. Clearing the marker only
 # loses wined3d's Unix library, which serves Vulkan video decoding.
-python3 -I - "$build/wined3d.dll.part" <<'CLEAR_MARKER'
+python3 -I - "$build/$dll.dll.part" <<'CLEAR_MARKER'
 import sys
 path = sys.argv[1]
 data = bytearray(open(path, 'rb').read())
 if data[0x40:0x50] != b'Wine builtin DLL':
-    sys.exit('wined3d.dll has no builtin marker at 0x40')
+    sys.exit(f'{path} has no builtin marker at 0x40')
 data[0x40:0x50] = bytes(16)
 open(path, 'wb').write(data)
 CLEAR_MARKER
-mv "$build/wined3d.dll.part" "$build/wined3d.dll"
-printf 'Built %s (Wine %s)\n' "$build/wined3d.dll" "$version"
+mv "$build/$dll.dll.part" "$build/$dll.dll"
+done
+python3 - "$build" "$version" <<'MANIFEST'
+import hashlib, json, pathlib, sys
+build = pathlib.Path(sys.argv[1])
+data = {'source_version': sys.argv[2], 'sha256': {
+    name: hashlib.sha256((build / name).read_bytes()).hexdigest()
+    for name in ('d3d11.dll', 'dxgi.dll', 'wined3d.dll')}}
+temporary = build / 'wine-graphics.json.part'
+temporary.write_text(json.dumps(data, indent=2) + '\n')
+temporary.replace(build / 'wine-graphics.json')
+MANIFEST
+printf 'Built D3D11/DXGI/WineD3D stack in %s (source Wine %s)\n' "$build" "$version"

@@ -5,27 +5,51 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 game="$root/local/game"
 # --log always: the relaunch check below reads the log.
 flags=(--log)
-for arg in "$@"; do
-  case "$arg" in
-    --*) flags+=("$arg") ;;
-    *) game=$arg ;;
+renderer=${CTR2_RENDERER:-opengl}
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --renderer) [[ $# -ge 2 ]] || { echo 'Missing renderer value.' >&2; exit 2; }; renderer=$2; shift ;;
+    --renderer=*) renderer=${1#*=} ;;
+    --*) flags+=("$1") ;;
+    *) game=$1 ;;
   esac
+  shift
 done
+case "$renderer" in
+  opengl|vulkan) ;;
+  *) echo "Unknown renderer '$renderer': use opengl or vulkan." >&2; exit 2 ;;
+esac
 export WINEPREFIX=${WINEPREFIX:-"$root/local/wine-test"}
 export WINEDEBUG=${WINEDEBUG:--all}
 export MVK_CONFIG_LOG_LEVEL=${MVK_CONFIG_LOG_LEVEL:-0}
 overrides="d3dcompiler_47=n,b;msvcr120_app,msvcp120_app,vccorlib120_app=n"
-# The patched wined3d.dll from build-wined3d.sh, when staged: without it Wine
-# rejects every shader the game compiles and draws nothing.
-if [[ -f "$game/wined3d.dll" ]]; then
-  overrides+=";wined3d=n"
-else
-  echo 'No wined3d.dll beside Game.exe: expect a black screen. Build it with scripts/build-wined3d.sh and rerun setup.sh.' >&2
-fi
-export WINEDLLOVERRIDES="$overrides${WINEDLLOVERRIDES:+;$WINEDLLOVERRIDES}"
+case "$renderer" in
+  opengl) overrides+=';d3d11,dxgi,wined3d=n' ;;
+  vulkan) overrides+=';wined3d,d3d11,dxgi=b' ;;
+esac
+# Backend selection takes precedence over ambient overrides, including stale
+# wined3d=n from the previous launcher.
+export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+$WINEDLLOVERRIDES;}$overrides"
 wine=${WINE:-"$HOME/Applications/Wine Devel.app/Contents/Resources/wine/bin/wine"}
 [[ -x "$wine" ]] || { echo 'Set WINE to your Wine executable.' >&2; exit 1; }
 [[ -f "$game/Game.exe" && -f "$game/ctr2shim.dll" ]] || { echo 'Run setup.sh first.' >&2; exit 1; }
+if [[ "$renderer" == opengl ]]; then
+  python3 - "$game" <<'CHECK_STACK'
+import hashlib, json, pathlib, sys
+game = pathlib.Path(sys.argv[1])
+try:
+    manifest = json.loads((game / 'wine-graphics.json').read_text())
+    for name in ('d3d11.dll', 'dxgi.dll', 'wined3d.dll'):
+        if hashlib.sha256((game / name).read_bytes()).hexdigest() != manifest['sha256'][name]:
+            raise ValueError(f'{name} does not match the graphics stack')
+except (OSError, ValueError, KeyError, TypeError) as error:
+    sys.exit(f'Invalid Wine graphics stack: {error}. Build scripts/build-wined3d.sh and rerun setup.sh.')
+CHECK_STACK
+fi
+# Per-application setting avoids changing other games in a shared prefix.
+if [[ "$renderer" == vulkan ]]; then backend=vulkan; else backend=gl; fi
+"$wine" reg add 'HKCU\Software\Wine\AppDefaults\Game.exe\Direct3D' /v renderer /t REG_SZ /d "$backend" /f > /dev/null
+echo "Wine renderer: $renderer" >&2
 # A crash otherwise opens Wine's crash dialog, which keeps the process alive
 # until closed and stalls the relaunch below; print the backtrace and exit.
 "$wine" reg add 'HKCU\Software\Wine\WineDbg' /v ShowCrashDialog /t REG_DWORD /d 0 /f > /dev/null 2>&1 || true

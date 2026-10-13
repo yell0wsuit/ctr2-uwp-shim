@@ -59,12 +59,19 @@ class SetupTests(unittest.TestCase):
             result = subprocess.run(setup, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr.decode())
             self.assertFalse((dest/'wined3d.dll').exists())
-            # Without it the game opens to a black screen under Wine on macOS.
+            # A lone wined3d is insufficient for the default matched stack.
             self.assertIn(b'build-wined3d.sh', result.stderr)
             (build/'wined3d.dll').write_bytes(X86_PE + b'wined3d')
             result = subprocess.run(setup, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse((dest/'wined3d.dll').exists())
+            self.assertIn(b'Incomplete Wine graphics stack', result.stderr)
+            for name in ('d3d11.dll', 'dxgi.dll', 'wine-graphics.json'):
+                (build/name).write_bytes(b'graphics')
+            result = subprocess.run(setup, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr.decode())
-            self.assertEqual((dest/'wined3d.dll').read_bytes(), X86_PE + b'wined3d')
+            for name in ('d3d11.dll', 'dxgi.dll', 'wine-graphics.json'):
+                self.assertEqual((dest/name).read_bytes(), b'graphics')
             self.assertNotIn(b'build-wined3d.sh', result.stderr)
     def test_rejects_destination_inside_source_before_writing(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -49,16 +49,30 @@ The toolchain defaults to LLVM in `/opt/homebrew/opt/llvm` and SDK files in `.sd
 
 ### Wine graphics (macOS)
 
-Wine's own `wined3d.dll` draws nothing for this game on macOS. The game caps Direct3D at feature level 9_3, macOS's OpenGL 4.1 caps wined3d there too, and at 9_x wined3d uses only the SM2 (`Aon9`) part of a shader, which Wine's compiler never produces. [`wine/wined3d.patch`](../wine/wined3d.patch) makes wined3d run the SM4 code instead. Build the patched DLL with:
+The game caps Direct3D at feature level 9_3. Wine's compiler emits SM4 code without the legacy `Aon9` payload, and WineD3D's legacy shader path also fails to receive the game's D3D11 constants. Merely using Microsoft's compiler restores Aon9 but still renders black. [`wine/wined3d.patch`](../wine/wined3d.patch) instead runs the SM4 code and supplies OpenGL integer-conversion fallbacks for macOS.
+
+Build the complete matched graphics stack with:
 
 ```sh
 brew install bison llvm lld
 scripts/build-wined3d.sh
 ```
 
-The script reads the version of Wine that `WINE` points to (default: Wine Devel in `~/Applications`), downloads that version's source from WineHQ into `local/wine-src`, checks it against a pinned SHA-256, applies the patch, and builds only the 32-bit DLL. The first build takes a few minutes. The output is `build/macos-x86/wined3d.dll`, or the folder given as the first argument; `setup.sh` stages it from its build folder and `run.sh` loads it with `WINEDLLOVERRIDES=wined3d=n`.
+The script downloads checksum-pinned Wine 11.18 source into `local/wine-src`, applies the patch, and builds the x86 PE `d3d11.dll`, `dxgi.dll`, and `wined3d.dll`. It does not inspect or require an installed Wine version. The first build takes a few minutes and currently uses Rosetta for the x86_64 build tools.
 
-The DLL must match the installed Wine exactly, because Wine's `d3d11.dll` and `dxgi.dll` call its internal exports, so rebuild after updating Wine. For a Wine version other than 11.18, set `WINE_SOURCE_SHA256` to the checksum of its source tarball; the patch may need updating.
+Outputs go to `build/macos-x86`, or the folder given as the first argument, with `wine-graphics.json` recording their SHA-256 hashes. `setup.sh` stages them together. `run.sh` loads all three as native overrides and verifies their hashes before starting the game. This keeps private graphics exports inside a matched stack while using the installed Wine for Windows APIs, windowing, and OpenGL. Keep all three DLLs and their manifest together when updating; an older installation containing only `wined3d.dll` must be rebuilt and restaged.
+
+The source pin identifies the stack being built, not the Wine version users must install. Runtime API compatibility remains a requirement, and unsupported older or future Wine builds may still fail. The same built stack passed the FL9 shader/constant-buffer regression on Wine 11.17 and 11.18. Real game captures rendered on both, including a level scene on 11.17. The known intermittent graphics startup crash remains; these checks do not establish every Wine version or full-game parity.
+
+`shadertest.exe` draws at feature level 9_3 using a pixel shader constant buffer and checks the resulting red pixel. It catches the shader/constant problem that a clear-only GPU test cannot detect. Under Wine, run tests with `WINEDLLOVERRIDES='d3dcompiler_47=n,b;d3d11,dxgi,wined3d=n'` so they use the same stack as the game.
+
+### Alternative renderers and macOS 28
+
+`python3 scripts/play.py --renderer vulkan` selects stock WineD3D's Vulkan backend using a setting specific to `Game.exe`. On macOS this requires Wine's Vulkan support and [MoltenVK](https://github.com/KhronosGroup/MoltenVK). It bypasses the supplied OpenGL stack. Testing on Wine 11.18 with MoltenVK 1.4.0 reached Vulkan initialization but failed buffer creation with `VK_ERROR_FEATURE_NOT_PRESENT` and crashed; it is not a working replacement on that configuration.
+
+Graphics translation and CPU translation are separate. Apple says [general-purpose Rosetta support ends after macOS 27](https://developer.apple.com/news/?id=w5ngl9k2), while retaining limited functionality for certain older games. Do not assume that exception covers a Wine wrapper. Building the shim as ARM64 cannot load it into the original x86 game, and WoW64 alone does not translate Intel instructions to ARM.
+
+For this unchanged executable, a practical route to evaluate is a native ARM virtual machine running **Windows 11 on Arm**, whose own [x86 emulation](https://learn.microsoft.com/en-us/windows/arm/apps-on-arm-x86-emulation) runs 32-bit Windows applications without macOS Rosetta. Use the Windows setup and only the two shim DLLs, not the Wine graphics stack. This game and its GPU behavior have not been tested in that environment. A native ARM game port is the longer-term option; another independent x86 CPU translator would need its own integration and validation.
 
 ## Development tools
 

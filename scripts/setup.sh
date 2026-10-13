@@ -53,8 +53,10 @@ DECODE_NAMES
 python3 - "$build" "$destination" <<'COPY_SHIMS'
 import os, pathlib, shutil, sys, tempfile
 build, destination = map(pathlib.Path, sys.argv[1:])
-# wined3d.dll (scripts/build-wined3d.sh) is optional: Wine's own draws nothing.
-optional = [name for name in ('wined3d.dll',) if (build / name).is_file()]
+# Stage the optional graphics stack together; reject any partial stack.
+optional = [name for name in ('wined3d.dll', 'd3d11.dll', 'dxgi.dll', 'wine-graphics.json') if (build / name).is_file()]
+if optional and len(optional) != 4:
+    sys.exit('Incomplete Wine graphics stack; rebuild scripts/build-wined3d.sh.')
 for name in ['ctr2shim.dll', 'd3dcompiler_47.dll'] + optional:
     fd, temporary = tempfile.mkstemp(prefix=name + '.', dir=destination)
     os.close(fd)
@@ -67,6 +69,6 @@ for name in ['ctr2shim.dll', 'd3dcompiler_47.dll'] + optional:
 COPY_SHIMS
 cmp -s "$source_dir/Game.exe" "$destination/Game.exe"
 shasum -a 256 "$source_dir/Game.exe" "$destination/Game.exe"
-[[ -f "$destination/wined3d.dll" ]] ||
-  echo "No wined3d.dll in $build: under Wine on macOS the game draws a black screen. Build it with scripts/build-wined3d.sh '$build' and rerun setup." >&2
+[[ -f "$destination/wine-graphics.json" ]] ||
+  echo "Wine graphics stack missing: build scripts/build-wined3d.sh '$build' and rerun setup for Wine." >&2
 printf 'Prepared %s\n' "$destination"
