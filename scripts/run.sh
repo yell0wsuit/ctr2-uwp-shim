@@ -20,8 +20,8 @@ case "$renderer" in
   *) echo "Unknown renderer '$renderer': use opengl or vulkan." >&2; exit 2 ;;
 esac
 export WINEPREFIX=${WINEPREFIX:-"$root/local/wine-test"}
-export WINEDEBUG=${WINEDEBUG:--all}
-export MVK_CONFIG_LOG_LEVEL=${MVK_CONFIG_LOG_LEVEL:-0}
+export WINEDEBUG=${WINEDEBUG:--all,err+all}
+export MVK_CONFIG_LOG_LEVEL=${MVK_CONFIG_LOG_LEVEL:-1}
 overrides="d3dcompiler_47=n,b;msvcr120_app,msvcp120_app,vccorlib120_app=n"
 case "$renderer" in
   opengl) overrides+=';d3d11,dxgi,wined3d=n' ;;
@@ -72,14 +72,27 @@ cd "$game"
 # setup ("Exception frame is not in stack limits"). That startup death leaves
 # "CreateDXGIFactory1 begin" without a result in the log; retry only that case.
 status=0
+wine_log="$PWD/ctr2-wine.log"
+# Append across startup retries so the original failure remains available.
+: > "$wine_log"
 for attempt in 1 2 3; do
-  "$wine" Game.exe "${flags[@]}" && exit 0 || status=$?
+  if "$wine" Game.exe "${flags[@]}" 2>&1 | tee -a "$wine_log"; then
+    exit 0
+  else
+    pipeline_status=("${PIPESTATUS[@]}")
+    status=${pipeline_status[0]}
+    if [[ "$status" == 0 ]]; then status=${pipeline_status[1]}; fi
+  fi
   # Wine launches always log, and each logging run starts a new ctr2shim.log.
   run=$(cat ctr2shim.log 2>/dev/null || true)
-  if grep -q 'CreateDXGIFactory1 begin' <<< "$run" && ! grep -q 'CreateDXGIFactory1 hr=' <<< "$run"; then
+  if [[ "$renderer" == opengl ]] && grep -q 'CreateDXGIFactory1 begin' <<< "$run" && ! grep -q 'CreateDXGIFactory1 hr=' <<< "$run"; then
     echo "Wine graphics startup crashed (attempt $attempt/3); relaunching." >&2
     continue
   fi
-  exit "$status"
+  break
 done
+echo "Wine renderer '$renderer' exited with code $status. Diagnostics: $wine_log" >&2
+if [[ "$renderer" == vulkan ]]; then
+  echo 'Try python3 scripts/play.py --renderer opengl; Vulkan depends on Wine and driver support.' >&2
+fi
 exit "$status"

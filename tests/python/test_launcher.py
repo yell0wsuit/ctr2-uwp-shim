@@ -12,7 +12,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 @unittest.skipIf(sys.platform == "win32", "Wine launcher uses Bash")
 class LauncherTests(unittest.TestCase):
-    def run_launcher(self, renderer, ambient="", corrupt=False):
+    def run_launcher(self, renderer, ambient="", corrupt=False, game_status=0):
         with tempfile.TemporaryDirectory() as temp:
             base = pathlib.Path(temp)
             game = base / "game"
@@ -44,6 +44,9 @@ class LauncherTests(unittest.TestCase):
                 'if [[ "$1" == Game.exe ]]; then\n'
                 '  cat "$WINEPREFIX/commands"\n'
                 '  echo "OVERRIDES=$WINEDLLOVERRIDES"\n'
+                '  echo "DEBUG=$WINEDEBUG MVK=$MVK_CONFIG_LOG_LEVEL"\n'
+                '  echo "Vulkan buffer creation failed" >&2\n'
+                f"  exit {game_status}\n"
                 'else\n  printf "%s\\n" "$@" >> "$WINEPREFIX/commands"\nfi\n'
             )
             wine.chmod(0o755)
@@ -55,8 +58,10 @@ class LauncherTests(unittest.TestCase):
                 WINEPREFIX=str(base / "prefix"),
                 CTR2_RETINA="0",
                 WINEDLLOVERRIDES=ambient,
+                WINEDEBUG="",
+                MVK_CONFIG_LOG_LEVEL="",
             )
-            return subprocess.run(
+            result = subprocess.run(
                 [
                     "bash",
                     str(ROOT / "scripts/run.sh"),
@@ -68,6 +73,9 @@ class LauncherTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
+            log = game / "ctr2-wine.log"
+            result.wine_log = log.read_text() if log.exists() else ""
+            return result
 
     def test_vulkan_uses_stock_wine_and_app_specific_renderer(self):
         result = self.run_launcher("vulkan")
@@ -96,3 +104,12 @@ class LauncherTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("does not match", result.stderr)
         self.assertNotIn("OVERRIDES=", result.stdout)
+
+    def test_vulkan_failure_reports_status_and_preserves_wine_diagnostics(self):
+        result = self.run_launcher("vulkan", game_status=3)
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("Vulkan buffer creation failed", result.wine_log)
+        self.assertIn("Wine renderer 'vulkan' exited with code 3", result.stderr)
+        self.assertIn("ctr2-wine.log", result.stderr)
+        self.assertIn("--renderer opengl", result.stderr)
+        self.assertIn("DEBUG=-all,err+all MVK=1", result.stdout)
