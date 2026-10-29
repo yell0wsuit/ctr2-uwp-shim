@@ -1,5 +1,8 @@
 # ctr2-uwp-shim
 
+> [!warning]
+> This project is archived. For latest updates, see <https://github.com/yell0wsuit/appx-portable>.
+
 A DLL shim that lets you run the Windows 8.1 Store version of **Cut the Rope 2** as a desktop game. The shim supplies the Windows Runtime features the game needs through two DLLs placed beside the game's `Game.exe`. The original executable stays unchanged.
 
 Windows supports gameplay, saves, resizable windows, and borderless fullscreen. Wine support is **experimental** and may have bugs.
